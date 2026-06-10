@@ -8,6 +8,7 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false) // 👁️ NEW
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
@@ -42,27 +43,22 @@ export default function LoginPage() {
   return (
     <div className="relative min-h-screen text-white overflow-hidden">
 
-      {/* 🌌 FULL BACKGROUND */}
+      {/* 🌌 BACKGROUND */}
       <img
         src="/login-bg.png"
         className="absolute inset-0 w-full h-full object-cover object-center"
       />
 
-      {/* 🌑 GRADIENT OVERLAY (NO BLUR) */}
+      {/* 🌑 OVERLAY */}
       <div className="absolute inset-0 bg-gradient-to-r from-[#020617]/90 via-[#020617]/60 to-[#020617]/30" />
 
-      {/* 🔷 CONTENT WRAPPER */}
       <div className="relative z-10 flex min-h-screen">
 
-        {/* LEFT TEXT SECTION */}
+        {/* LEFT SIDE */}
         <div className="hidden lg:flex w-1/2 flex-col justify-center px-16">
 
-          {/* LOGO */}
           <div className="flex items-center gap-3 mb-10">
-            <img
-              src="/logo.png"
-              className="h-12 w-auto object-contain"
-            />
+            <img src="/logo.png" className="h-12 w-auto object-contain" />
             <div>
               <h1 className="text-xl font-bold">NAVIGO</h1>
               <p className="text-blue-400 text-sm">
@@ -71,7 +67,6 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* HERO TEXT */}
           <h1 className="text-6xl font-bold leading-tight max-w-xl">
             Every Journey Begins with{" "}
             <span className="bg-gradient-to-r from-blue-400 via-cyan-300 to-yellow-400 text-transparent bg-clip-text">
@@ -83,7 +78,6 @@ export default function LoginPage() {
             Smart booking. Dynamic pricing. Personalized for you.
           </p>
 
-          {/* FEATURES */}
           <div className="mt-6 space-y-3 text-gray-300">
             <p>✈ Smart Booking — AI finds best flights</p>
             <p>💺 Comfort First — choose your seat</p>
@@ -95,7 +89,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* RIGHT LOGIN CARD */}
+        {/* RIGHT CARD */}
         <div className="w-full lg:w-1/2 flex items-center justify-center px-6">
 
           <div className="w-full max-w-md 
@@ -120,14 +114,24 @@ export default function LoginPage() {
               onChange={(e) => setEmail(e.target.value)}
             />
 
-            {/* PASSWORD */}
-            <input
-              type="password"
-              placeholder="Password"
-              className="w-full mb-3 p-3 rounded-lg bg-black/40 border border-white/10 outline-none focus:border-blue-400"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+            {/* PASSWORD WITH EYE */}
+            <div className="relative mb-3">
+              <input
+                type={showPassword ? "text" : "password"}
+                placeholder="Password"
+                className="w-full p-3 pr-12 rounded-lg bg-black/40 border border-white/10 outline-none focus:border-blue-400"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+              >
+                {showPassword ? "🙈" : "👁️"}
+              </button>
+            </div>
 
             {/* ERROR */}
             {error && (
@@ -143,12 +147,15 @@ export default function LoginPage() {
                 Remember me
               </label>
 
-              <span className="text-blue-400 cursor-pointer">
+              <span
+                className="text-blue-400 cursor-pointer hover:underline"
+                onClick={() => router.push("/forgot-password")}
+              >
                 Forgot Password?
               </span>
             </div>
 
-            {/* LOGIN BUTTON */}
+            {/* LOGIN */}
             <button
               onClick={handleLogin}
               disabled={loading}
@@ -188,7 +195,6 @@ export default function LoginPage() {
               </span>
             </p>
 
-            {/* SECURITY */}
             <p className="text-center text-xs text-gray-500 mt-3">
               🔒 256-bit encryption
             </p>

@@ -10,38 +10,42 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const token = localStorage.getItem("token")
+    const checkAuth = async () => {
+      const token = localStorage.getItem("token")
 
-    if (!token) {
-      router.push("/login")
-      return
-    }
+      if (!token) {
+        router.replace("/login") // ✅ replace avoids back button issues
+        return
+      }
 
-    // 🔐 VERIFY TOKEN
-    fetch("/api/auth/me", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
-      .then((res) => {
+      try {
+        const res = await fetch("/api/auth/me", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        })
+
         if (!res.ok) {
           localStorage.removeItem("token")
-          router.push("/login")
-        } else {
-          setLoading(false)
+          router.replace("/login")
+          return
         }
-      })
-      .catch(() => {
-        localStorage.removeItem("token")
-        router.push("/login")
-      })
-  }, [])
 
-  // 🔥 LOADING SCREEN
+        setLoading(false)
+      } catch (err) {
+        localStorage.removeItem("token")
+        router.replace("/login")
+      }
+    }
+
+    checkAuth()
+  }, [router])
+
+  // 🔥 CLEAN LOADING SCREEN (no hydration mismatch)
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-[#020617] text-white">
-        Loading...
+        <div className="animate-pulse text-lg">Loading Navigo...</div>
       </div>
     )
   }
@@ -49,15 +53,14 @@ export default function Home() {
   return (
     <div className="relative min-h-screen text-white overflow-hidden">
 
-      {/* 🌌 BACKGROUND */}
+      {/* 🌌 FULL BACKGROUND */}
       <div className="absolute inset-0 -z-10">
         <img
           src="/hero-bg.png"
-          className="w-full h-full object-cover object-[75%_center]"
+          className="w-full h-full object-cover"
         />
-
-        <div className="absolute inset-0 bg-gradient-to-r from-[#020617] via-[#020617]/70 to-transparent" />
-        <div className="absolute inset-0 bg-[#020617]/40" />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#020617]/90 via-[#020617]/70 to-transparent" />
+        <div className="absolute inset-0 bg-[#020617]/30" />
       </div>
 
       {/* 🧭 NAVBAR */}
@@ -94,7 +97,6 @@ export default function Home() {
           <h2 className="mb-4 text-lg font-semibold">
             Explore Popular Routes
           </h2>
-
           <p className="text-gray-400 text-sm">
             Routes will appear based on user searches.
           </p>
@@ -105,7 +107,6 @@ export default function Home() {
           <h2 className="mb-4 text-lg font-semibold">
             Cheapest Dates
           </h2>
-
           <p className="text-gray-400 text-sm">
             Price trends will be shown after selecting a route.
           </p>
@@ -116,7 +117,6 @@ export default function Home() {
           <h2 className="mb-4 text-lg font-semibold">
             Price Insight
           </h2>
-
           <p className="text-gray-400 text-sm">
             AI-based pricing insights coming soon.
           </p>
