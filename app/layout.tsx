@@ -7,7 +7,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className="min-h-screen bg-[#020617] text-white overflow-y-auto">
+        {children}
+      </body>
     </html>
   )
-};
+}
