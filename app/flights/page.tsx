@@ -2,140 +2,208 @@
 
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
-
-type Flight = {
-  id: string
-  flight_number: string
-  airline: string
-  origin: string
-  destination: string
-  departure_time: string
-  arrival_time: string
-  final_price: number
-  tags: string[]
-}
+import Navbar from "@/components/navbar"
+import FlightCard from "@/components/FlightCard"
 
 export default function FlightsPage() {
   const searchParams = useSearchParams()
 
   const origin = searchParams.get("origin")
   const destination = searchParams.get("destination")
+  const depart = searchParams.get("depart")
 
-  const [flights, setFlights] = useState<Flight[]>([])
-  const [loading, setLoading] = useState(true)
+  const [flights, setFlights] = useState<any[]>([])
 
   useEffect(() => {
-    const fetchFlights = async () => {
-      const res = await fetch(
-        `/api/flights?origin=${origin}&destination=${destination}`
-      )
-      const data = await res.json()
-      setFlights(data)
-      setLoading(false)
-    }
+    if (!origin || !destination || !depart) return
 
-    fetchFlights()
-  }, [origin, destination])
+    fetch(
+      `/api/flights?origin=${origin}&destination=${destination}&depart=${depart}`
+    )
+      .then((res) => res.json())
+      .then((data) => {
+        // ✅ FIX: support both API formats
+        if (Array.isArray(data)) {
+          setFlights(data)
+        } else {
+          setFlights(data.flights || [])
+        }
+      })
+      .catch(() => setFlights([]))
+  }, [origin, destination, depart])
 
   return (
-    <div className="min-h-screen bg-[#020617] text-white px-6 py-12">
+    <div className="min-h-screen bg-[#020617] text-white">
 
-      <div className="max-w-6xl mx-auto">
+      {/* NAVBAR */}
+      <Navbar />
 
-        {/* HEADER */}
-        <h1 className="text-4xl md:text-5xl font-bold mb-12 tracking-tight">
-          Flights from{" "}
-          <span className="text-blue-400">{origin}</span> →{" "}
-          <span className="text-yellow-400">{destination}</span>
-        </h1>
+      {/* TOP SEARCH */}
+      <div className="max-w-7xl mx-auto px-6 pt-24 pb-6">
+        <div className="bg-white/5 border border-white/10 rounded-2xl px-6 py-5 backdrop-blur-xl flex justify-between items-center">
 
-        {/* LOADING */}
-        {loading && (
-          <p className="text-gray-400 animate-pulse">
-            Loading flights...
-          </p>
-        )}
+          <div className="flex items-center gap-8">
 
-        {/* EMPTY STATE */}
-        {!loading && flights.length === 0 && (
-          <p className="text-gray-400">
-            No flights found 😢
-          </p>
-        )}
+            <div>
+              <p className="text-xs text-gray-400">From</p>
+              <p className="text-xl font-semibold">{origin}</p>
+            </div>
 
-        {/* FLIGHT CARDS */}
-        <div className="space-y-6">
-          {flights.map((flight) => {
-            const dep = new Date(flight.departure_time).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
+            <div className="text-gray-500 text-xl">→</div>
+
+            <div>
+              <p className="text-xs text-gray-400">To</p>
+              <p className="text-xl font-semibold text-yellow-400">
+                {destination}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-xs text-gray-400">Depart</p>
+              <p className="font-medium">{depart}</p>
+            </div>
+
+            <div>
+              <p className="text-xs text-gray-400">Passengers</p>
+              <p className="font-medium">1 • Economy</p>
+            </div>
+          </div>
+
+          <button className="px-4 py-2 border border-white/20 rounded-lg hover:bg-white/10 transition">
+            ✏️ Edit Search
+          </button>
+        </div>
+      </div>
+
+      {/* MAIN */}
+      <div className="max-w-7xl mx-auto px-6 grid grid-cols-12 gap-6">
+
+        {/* LEFT */}
+        <div className="col-span-3 space-y-4">
+          <div className="bg-white/5 border border-white/10 rounded-xl p-4 backdrop-blur-xl">
+            <p className="font-semibold mb-4">Filters</p>
+
+            <div className="text-sm text-gray-400 space-y-2">
+              <p>Stops</p>
+              <p>Price Range</p>
+              <p>Airlines</p>
+              <p>Departure Time</p>
+            </div>
+          </div>
+        </div>
+
+        {/* CENTER */}
+        <div className="col-span-6 space-y-4">
+
+          {/* HEADER */}
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="text-lg font-semibold">
+                {flights.length} flights found
+              </p>
+              <p className="text-xs text-gray-400">
+                Prices include taxes & fees
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button className="text-sm border border-white/20 px-3 py-1 rounded hover:bg-white/10">
+                🔔 Price Alerts
+              </button>
+
+              <button className="text-sm border border-white/20 px-3 py-1 rounded hover:bg-white/10">
+                Sort: Best
+              </button>
+            </div>
+          </div>
+
+          {/* 🔥 UPGRADED MINI CARDS */}
+          <div className="grid grid-cols-4 gap-4">
+
+            <div className="p-4 rounded-xl bg-gradient-to-br from-blue-900/40 to-blue-600/20 border border-blue-500/20">
+              <p className="text-sm text-gray-300">Best</p>
+              <p className="text-xl font-bold">₹478</p>
+              <p className="text-xs text-gray-400">15h avg</p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-[#0b1220] border border-white/10">
+              <p className="text-sm text-gray-300">Cheapest</p>
+              <p className="text-green-400 font-bold">₹362</p>
+              <p className="text-xs text-gray-400">18h avg</p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-[#0b1220] border border-white/10">
+              <p className="text-sm text-gray-300">Fastest</p>
+              <p className="text-white font-bold">₹612</p>
+              <p className="text-xs text-gray-400">13h</p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-[#0b1220] border border-white/10">
+              <p className="text-sm text-gray-300">Best Value</p>
+              <p className="text-yellow-400 font-bold">₹478</p>
+              <p className="text-xs text-gray-400">15h</p>
+            </div>
+
+          </div>
+
+          {/* FLIGHTS */}
+          {flights.length === 0 ? (
+            <div className="text-center text-gray-400 mt-10">
+              No flights found ✈️
+            </div>
+          ) : (
+            Array.isArray(flights) &&
+            flights.map((flight) => {
+              const durationHours = Math.round(
+                (new Date(flight.arrival_time).getTime() -
+                  new Date(flight.departure_time).getTime()) /
+                  (1000 * 60 * 60)
+              )
+
+              return (
+                <FlightCard
+                  key={flight.id}
+                  flight={{
+                    airline: flight.airline,
+                    origin: flight.origin,
+                    destination: flight.destination,
+                    departure_time: flight.departure_time,
+                    arrival_time: flight.arrival_time,
+                    price: flight.base_price,
+                    aircraft: flight.aircraft,
+                    stops: flight.stops,
+                    duration: `${durationHours}h`,
+                  }}
+                />
+              )
             })
+          )}
 
-            const arr = new Date(flight.arrival_time).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })
+        </div>
 
-            return (
-              <div
-                key={flight.id}
-                className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl px-8 py-7 flex justify-between items-center hover:bg-white/10 hover:border-blue-400/30 transition duration-300 shadow-[0_0_40px_rgba(0,0,0,0.3)]"
-              >
-                {/* LEFT */}
-                <div className="space-y-3">
-                  <h2 className="text-2xl font-semibold tracking-tight">
-                    {flight.airline} ({flight.flight_number})
-                  </h2>
+        {/* RIGHT */}
+        <div className="col-span-3 space-y-4">
 
-                  <p className="text-gray-400 text-sm">
-                    {flight.origin} → {flight.destination}
-                  </p>
+          <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+            <p className="font-semibold mb-2">Price Insight</p>
+            <p className="text-sm text-green-400">Low</p>
+            <p className="text-xs text-gray-400">
+              Prices are currently low. Book now.
+            </p>
+          </div>
 
-                  <p className="text-gray-300 text-lg">
-                    {dep} → {arr}
-                  </p>
+          <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+            <p className="font-semibold">AI Savings</p>
+            <p className="text-sm text-green-400">Save up to ₹2000</p>
+          </div>
 
-                  {/* TAGS */}
-                  <div className="flex gap-3 mt-2 flex-wrap">
-                    {flight.tags?.map((tag, i) => {
-                      let style =
-                        "px-4 py-1 text-sm rounded-full bg-blue-500/20 text-blue-300"
+          <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+            <p className="font-semibold">NavBot</p>
+            <p className="text-xs text-gray-400">
+              Ask for recommendations
+            </p>
+          </div>
 
-                      if (tag === "Best")
-                        style =
-                          "px-4 py-1 text-sm rounded-full bg-green-500/20 text-green-300"
-                      if (tag === "Fastest")
-                        style =
-                          "px-4 py-1 text-sm rounded-full bg-purple-500/20 text-purple-300"
-                      if (tag === "Recommended")
-                        style =
-                          "px-4 py-1 text-sm rounded-full bg-cyan-500/20 text-cyan-300"
-                      if (tag === "Cheapest")
-                        style =
-                          "px-4 py-1 text-sm rounded-full bg-yellow-500/20 text-yellow-300"
-
-                      return (
-                        <span key={i} className={style}>
-                          {tag}
-                        </span>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                {/* RIGHT */}
-                <div className="text-right flex flex-col items-end gap-4">
-                  <p className="text-4xl font-bold text-yellow-400 tracking-tight">
-                    ₹{flight.final_price}
-                  </p>
-
-                  <button className="px-6 py-2 rounded-xl bg-gradient-to-r from-blue-500 to-yellow-400 text-black font-semibold hover:opacity-90 transition">
-                    Select
-                  </button>
-                </div>
-              </div>
-            )
-          })}
         </div>
 
       </div>
