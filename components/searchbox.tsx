@@ -9,7 +9,8 @@ import "react-date-range/dist/theme/default.css"
 export default function SearchBox() {
   const router = useRouter()
 
-  const [tripType, setTripType] = useState("round")
+  // ✅ FIXED VALUES
+  const [tripType, setTripType] = useState("roundtrip")
   const [from, setFrom] = useState("DEL")
   const [to, setTo] = useState("BLR")
   const [passengers, setPassengers] = useState(1)
@@ -26,10 +27,16 @@ export default function SearchBox() {
     setTo(from)
   }
 
+  // ✅ MAIN FIX HERE
   const search = () => {
-    router.push(
-      `/flights?origin=${from}&destination=${to}&depart=${range.startDate.toISOString()}&return=${range.endDate.toISOString()}&pax=${passengers}`
-    )
+    let url = `/flights?origin=${from}&destination=${to}&depart=${range.startDate.toISOString()}&pax=${passengers}&mode=${tripType}`
+
+    // only add return if roundtrip
+    if (tripType === "roundtrip") {
+      url += `&return=${range.endDate.toISOString()}`
+    }
+
+    router.push(url)
   }
 
   const days =
@@ -49,23 +56,26 @@ export default function SearchBox() {
       {/* TOP BAR */}
       <div className="flex justify-between items-center mb-6">
         <div className="flex gap-4 text-sm">
-          {["round", "oneway", "multi"].map((type) => (
+
+          {/* ✅ FIXED TYPES */}
+          {[
+            { key: "roundtrip", label: "✈️ Round Trip" },
+            { key: "oneway", label: "→ One Way" },
+            { key: "multi", label: "⟳ Multi City" },
+          ].map((type) => (
             <button
-              key={type}
-              onClick={() => setTripType(type)}
+              key={type.key}
+              onClick={() => setTripType(type.key)}
               className={`px-4 py-2 rounded-full transition ${
-                tripType === type
+                tripType === type.key
                   ? "bg-blue-500/20 text-blue-300"
                   : "text-gray-400 hover:text-white"
               }`}
             >
-              {type === "round"
-                ? "✈️ Round Trip"
-                : type === "oneway"
-                ? "→ One Way"
-                : "⟳ Multi City"}
+              {type.label}
             </button>
           ))}
+
         </div>
 
         <div className="flex items-center gap-4">
@@ -142,24 +152,14 @@ export default function SearchBox() {
         </button>
       </div>
 
-      {/* 🔥 CLEAN CALENDAR */}
+      {/* CALENDAR */}
       {showCalendar && (
         <div
           className="fixed inset-0 z-50 flex items-start justify-center pt-32 bg-black/30"
           onClick={() => setShowCalendar(false)}
         >
           <div
-            className="
-              bg-white
-              text-black
-              rounded-xl
-              shadow-2xl
-
-              w-fit
-              max-w-[95vw]
-
-              overflow-hidden
-            "
+            className="bg-white text-black rounded-xl shadow-2xl w-fit max-w-[95vw] overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <DateRange

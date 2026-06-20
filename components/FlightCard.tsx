@@ -40,15 +40,40 @@ function getStopsText(stops?: number) {
   return `${stops} Stops`;
 }
 
-export default function FlightCard({ flight }: { flight: Flight }) {
+export default function FlightCard({
+  flight,
+  onSelect,
+  isSelected,
+}: {
+  flight: Flight;
+  onSelect?: () => void;
+  isSelected?: boolean;
+}) {
   const logo = airlineLogos[flight.airline] || "/airlines/default.png";
 
   const pax = flight.passengers || 1;
-  const basePrice = Number(flight.price) || 0;
-  const totalPrice = basePrice * pax;
+
+  const basePrice = Number(flight.price ?? 0);
+  const safePrice = basePrice > 0 ? basePrice : 5000;
+
+  const totalPrice = safePrice * pax;
 
   return (
-    <div className="bg-gradient-to-br from-[#0B1220] to-[#0a1628] border border-white/10 rounded-2xl px-6 py-5 transition shadow-[0_0_25px_rgba(59,130,246,0.08)] hover:border-blue-400/40 hover:-translate-y-[2px]">
+    <div
+      onClick={onSelect}
+      className={`
+        bg-gradient-to-br from-[#0B1220] to-[#0a1628]
+        border rounded-2xl px-6 py-5
+        transition duration-200
+        cursor-pointer
+
+        ${
+          isSelected
+            ? "border-blue-400 ring-2 ring-blue-400/40 scale-[1.015] shadow-[0_0_35px_rgba(59,130,246,0.35)]"
+            : "border-white/10 shadow-[0_0_25px_rgba(59,130,246,0.08)] hover:border-blue-400/40 hover:-translate-y-[2px]"
+        }
+      `}
+    >
 
       {/* TOP ROW */}
       <div className="flex justify-between items-center mb-4">
@@ -99,11 +124,8 @@ export default function FlightCard({ flight }: { flight: Flight }) {
             </p>
 
             <div className="relative w-full h-[3px] bg-white/20">
-
-              {/* LINE */}
               <div className="absolute left-0 top-0 h-[3px] w-full bg-gradient-to-r from-blue-400 to-cyan-400"></div>
 
-              {/* DOTS */}
               <div className="absolute -top-[5px] left-0 w-2.5 h-2.5 bg-white rounded-full"></div>
               <div className="absolute -top-[5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-white/70 rounded-full"></div>
               <div className="absolute -top-[5px] right-0 w-2.5 h-2.5 bg-white rounded-full"></div>
@@ -132,10 +154,16 @@ export default function FlightCard({ flight }: { flight: Flight }) {
           </p>
 
           <p className="text-xs text-gray-400 whitespace-nowrap">
-            ₹{basePrice.toLocaleString()} × {pax} passenger{pax > 1 ? "s" : ""}
+            ₹{safePrice.toLocaleString()} × {pax} passenger{pax > 1 ? "s" : ""}
           </p>
 
-          <button className="mt-3 px-5 py-2 rounded-lg font-semibold bg-gradient-to-r from-blue-500 via-cyan-400 to-yellow-400 text-black hover:scale-105 hover:shadow-[0_0_20px_rgba(56,189,248,0.6)] transition">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect?.();
+            }}
+            className="mt-3 px-5 py-2 rounded-lg font-semibold bg-gradient-to-r from-blue-500 via-cyan-400 to-yellow-400 text-black hover:scale-105 hover:shadow-[0_0_20px_rgba(56,189,248,0.6)] transition"
+          >
             Select →
           </button>
         </div>
