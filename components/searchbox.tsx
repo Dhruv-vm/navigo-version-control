@@ -1,15 +1,15 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { DateRange } from "react-date-range"
 import "react-date-range/dist/styles.css"
 import "react-date-range/dist/theme/default.css"
 
 export default function SearchBox() {
   const router = useRouter()
+  const searchParams = useSearchParams()
 
-  // ✅ FIXED VALUES
   const [tripType, setTripType] = useState("roundtrip")
   const [from, setFrom] = useState("DEL")
   const [to, setTo] = useState("BLR")
@@ -22,16 +22,43 @@ export default function SearchBox() {
     key: "selection",
   })
 
+  // ✅ PREFILL FROM URL
+  useEffect(() => {
+    const originParam = searchParams.get("origin")
+    const destParam = searchParams.get("destination")
+    const departParam = searchParams.get("depart")
+    const returnParam = searchParams.get("return")
+    const paxParam = searchParams.get("pax")
+    const modeParam = searchParams.get("mode")
+
+    if (originParam) setFrom(originParam)
+    if (destParam) setTo(destParam)
+    if (paxParam) setPassengers(Number(paxParam))
+
+    if (modeParam === "roundtrip") setTripType("roundtrip")
+    if (modeParam === "oneway") setTripType("oneway")
+
+    if (departParam) {
+      const start = new Date(departParam)
+      const end = returnParam ? new Date(returnParam) : start
+
+      setRange({
+        startDate: start,
+        endDate: end,
+        key: "selection",
+      })
+    }
+  }, [searchParams])
+
   const swap = () => {
     setFrom(to)
     setTo(from)
   }
 
-  // ✅ MAIN FIX HERE
+  // ✅ SEARCH (CLEAN + SAFE)
   const search = () => {
     let url = `/flights?origin=${from}&destination=${to}&depart=${range.startDate.toISOString()}&pax=${passengers}&mode=${tripType}`
 
-    // only add return if roundtrip
     if (tripType === "roundtrip") {
       url += `&return=${range.endDate.toISOString()}`
     }
@@ -57,7 +84,6 @@ export default function SearchBox() {
       <div className="flex justify-between items-center mb-6">
         <div className="flex gap-4 text-sm">
 
-          {/* ✅ FIXED TYPES */}
           {[
             { key: "roundtrip", label: "✈️ Round Trip" },
             { key: "oneway", label: "→ One Way" },

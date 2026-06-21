@@ -52,6 +52,11 @@ html {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255,255,255,0.3);
 }
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-25px); }
+  100% { transform: translateY(0px); }
+}
 
 /* DATE RANGE PICKER */
 @import "react-date-range/dist/styles.css";
