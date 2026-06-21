@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import Navbar from "@/components/navbar"
 import FlightCard from "@/components/FlightCard"
+import PriceInsight from "@/components/PriceInsight"
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return { date: "", day: "" }
@@ -46,7 +47,7 @@ export default function FlightsPage() {
   const [activeTab, setActiveTab] = useState<"departure" | "return">("departure")
   const [selectedDepartFlight, setSelectedDepartFlight] = useState<any>(null)
 
-  // ✅ STEP 1 — RETURN SELECTION STATE
+  // ✅ RETURN SELECTION STATE
   const [selectedReturnFlight, setSelectedReturnFlight] = useState<any>(null)
 
   // ✅ Collapsible filter sections (UI only)
@@ -76,14 +77,35 @@ export default function FlightsPage() {
 
     fetch(`/api/flights?origin=${origin}&destination=${destination}&depart=${depart}`)
       .then((res) => res.json())
-      .then((data) => setDepartFlights(data.flights || []))
+      .then((data) => {
+        // eslint-disable-next-line no-console
+        console.log("[flights] depart response:", data)
+        setDepartFlights(data.flights || [])
+      })
+      .catch((err) => console.error("[flights] depart fetch failed:", err))
 
     if (mode === "roundtrip" && returnDate) {
       fetch(`/api/flights?origin=${destination}&destination=${origin}&depart=${returnDate}`)
         .then((res) => res.json())
-        .then((data) => setReturnFlights(data.flights || []))
+        .then((data) => {
+          // eslint-disable-next-line no-console
+          console.log("[flights] return response:", data)
+          setReturnFlights(data.flights || [])
+        })
+        .catch((err) => console.error("[flights] return fetch failed:", err))
     }
   }, [origin, destination, depart, returnDate, mode])
+
+  // ✅ FIXED — resets filters whenever the tab changes so filters picked
+  // while browsing Departure (e.g. a specific airline, stop count, or
+  // price cap) don't silently wipe out the Return list, which can have a
+  // totally different set of airlines/stops/prices.
+  const switchTab = (tab: "departure" | "return") => {
+    setActiveTab(tab)
+    setSelectedStops(null)
+    setSelectedAirlines([])
+    setMaxPrice(20000)
+  }
 
   // ✅ FILTER LOGIC (unchanged)
   const applyFilters = (flights: any[]) => {
@@ -98,11 +120,22 @@ export default function FlightsPage() {
     })
   }
 
-  // ✅ Duration helper — uses real duration if your API provides it,
-  // otherwise falls back to a stop-based estimate so sorting still works.
+  // ✅ FIXED — parses the real "Xh Ym" duration string your API/FlightCard
+  // already use, instead of guessing from stops. Falls back only if the
+  // field is missing or unparsable.
+  const parseDurationMinutes = (duration?: string) => {
+    if (!duration) return null
+    const match = duration.match(/(\d+)\s*h(?:[^\d]*?(\d+)\s*m)?/i)
+    if (!match) return null
+    const hours = Number(match[1] || 0)
+    const mins = Number(match[2] || 0)
+    return hours * 60 + mins
+  }
+
   const getDurationMinutes = (f: any) => {
+    const parsed = parseDurationMinutes(f.duration)
+    if (parsed !== null) return parsed
     if (typeof f.duration_minutes === "number") return f.duration_minutes
-    if (typeof f.duration === "number") return f.duration
     return 90 + (f.stops || 0) * 75
   }
 
@@ -115,7 +148,7 @@ export default function FlightsPage() {
     return `${h}h ${m}m`
   }
 
-  // ✅ UPDATED — supports best / cheapest / fastest / value
+  // ✅ supports best / cheapest / fastest / value
   const applySort = (flights: any[]) => {
     const sorted = [...flights]
 
@@ -132,9 +165,13 @@ export default function FlightsPage() {
     return sorted.sort((a, b) => getBestScore(a) - getBestScore(b))
   }
 
-  // ✅ MIN PRICE PER AIRLINE (unchanged)
+  // ✅ FIXED — was hardcoded to always read from `departFlights`, which
+  // meant the airline price chips on the Return tab showed departure
+  // prices (or nothing) instead of return prices. Now reads from
+  // whichever leg is currently active.
   const getMinPriceByAirline = (airline: string) => {
-    const flights = applyFilters(departFlights).filter(
+    const sourceFlights = activeTab === "departure" ? departFlights : returnFlights
+    const flights = applyFilters(sourceFlights).filter(
       (f) => f.airline === airline
     )
     if (!flights.length) return null
@@ -201,7 +238,7 @@ export default function FlightsPage() {
     { key: "value", label: "Best Value", icon: "🎯", flight: bestValueFlight },
   ]
 
-  // ✅ Continue → takes the user to the next page with the selection summary
+  // ✅ Continue → next page with the selection summary (total only, no split-up)
   const handleContinue = () => {
     if (!selectedDepartFlight) return
 
@@ -523,7 +560,7 @@ export default function FlightsPage() {
               <div className="flex gap-4 mb-4">
 
                 <button
-                  onClick={() => setActiveTab("departure")}
+                  onClick={() => switchTab("departure")}
                   className={`px-4 py-2 rounded-lg text-sm
                   ${activeTab === "departure"
                     ? "bg-blue-500/20 border border-blue-400 text-white"
@@ -534,7 +571,7 @@ export default function FlightsPage() {
 
                 <button
                   disabled={!selectedDepartFlight}
-                  onClick={() => setActiveTab("return")}
+                  onClick={() => switchTab("return")}
                   className={`px-4 py-2 rounded-lg text-sm
                   ${!selectedDepartFlight
                     ? "opacity-40 cursor-not-allowed bg-white/5"
@@ -575,8 +612,9 @@ export default function FlightsPage() {
                       <p className="text-lg font-bold text-yellow-400">
                         ₹{card.flight.final_price.toLocaleString("en-IN")}
                       </p>
+                      {/* ✅ FIXED — uses the real duration string, falls back only if missing */}
                       <p className="text-xs text-gray-500">
-                        {formatDuration(getDurationMinutes(card.flight))}
+                        {card.flight.duration || formatDuration(getDurationMinutes(card.flight))}
                       </p>
                     </>
                   ) : (
@@ -586,41 +624,58 @@ export default function FlightsPage() {
               ))}
             </div>
 
-            {applySort(currentFiltered).map((flight)=>(
+            {/* ✅ Uses the real FlightCard's own onSelect / isSelected API */}
+            {applySort(currentFiltered).map((flight) => {
+              const isThisSelected =
+                activeTab === "departure"
+                  ? selectedDepartFlight?.id === flight.id
+                  : selectedReturnFlight?.id === flight.id
 
-
-                            <div
-                key={flight.id}
-                // ✅ STEP 2 — REPLACED ONLY INSIDE onClick
-                onClick={() => {
-                  if (activeTab === "departure") {
-                    setSelectedDepartFlight(flight)
-
-                    if (mode === "roundtrip") {
-                      setActiveTab("return")
-                    }
-                  } else {
-                    setSelectedReturnFlight(flight)
-                  }
-                }}
-              >
+              return (
                 <FlightCard
-                  flight={{...flight, price:flight.final_price}}
+                  key={flight.id}
+                  flight={{ ...flight, price: flight.final_price }}
+                  isSelected={isThisSelected}
+                  onSelect={() => {
+                    if (activeTab === "departure") {
+                      setSelectedDepartFlight(flight)
+
+                      if (mode === "roundtrip") {
+                        switchTab("return")
+                      }
+                    } else {
+                      setSelectedReturnFlight(flight)
+                    }
+                  }}
                 />
+              )
+            })}
+
+            {currentFiltered.length === 0 && (
+              <div className="text-center text-gray-400 text-sm py-10 border border-white/10 rounded-2xl bg-white/[0.02]">
+                No flights match your current filters.{" "}
+                <button
+                  onClick={() => {
+                    setSelectedStops(null)
+                    setMaxPrice(20000)
+                    setSelectedAirlines([])
+                  }}
+                  className="text-blue-400 hover:underline"
+                >
+                  Reset filters
+                </button>
               </div>
-            ))}
+            )}
           </div>
 
-          {/* RIGHT */}
+          {/* RIGHT — AI Box / Price Insight, now driven by real dynamic pricing data */}
           <div className="col-span-3">
-            <div className="bg-[#0B1220] p-5 rounded-xl border border-white/10">
-              AI Box
-            </div>
+            <PriceInsight flights={currentFiltered} />
           </div>
 
         </div>
 
-        {/* ✅ STEP 3 — STICKY SELECTION SUMMARY BAR */}
+        {/* ✅ STICKY SELECTION SUMMARY BAR — total only, no price split-up */}
         {selectedDepartFlight && (
           <div className="fixed bottom-0 left-0 w-full bg-[#0B1220] border-t border-white/10 px-6 py-4 z-50">
             <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -638,14 +693,16 @@ export default function FlightsPage() {
                   </span>
                 )}
               </div>
-              {/* TOTAL PRICE */}
+              {/* TOTAL PRICE — single combined number, no split-up */}
               <div className="text-right">
-                <p className="text-xs text-gray-400">Total Price</p>
+                <p className="text-xs text-gray-400">
+                  {mode === "roundtrip" && !selectedReturnFlight ? "Total (departure only)" : "Total Price"}
+                </p>
                 <p className="text-2xl font-bold text-yellow-400">
-                  ₹{
+                  ₹{(
                     selectedDepartFlight.final_price +
                     (selectedReturnFlight?.final_price || 0)
-                  }
+                  ).toLocaleString("en-IN")}
                 </p>
               </div>
               {/* CTA */}

@@ -6,6 +6,20 @@ import { DateRange } from "react-date-range"
 import "react-date-range/dist/styles.css"
 import "react-date-range/dist/theme/default.css"
 
+// ✅ FIXED — `.toISOString()` converts a LOCAL midnight Date into UTC,
+// which rolls it back to the previous calendar day for any timezone
+// ahead of UTC (e.g. IST, UTC+5:30). Picking "23 June" in the calendar
+// produced `2026-06-22T18:30:00.000Z` — a day early — which is exactly
+// why the return-leg flight lookup against Supabase's `travel_date`
+// came back empty. This helper builds a plain "YYYY-MM-DD" string from
+// the Date's LOCAL year/month/day, never touching UTC at all.
+function toDateOnly(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
 export default function SearchBox() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -39,8 +53,18 @@ export default function SearchBox() {
     if (modeParam === "oneway") setTripType("oneway")
 
     if (departParam) {
-      const start = new Date(departParam)
-      const end = returnParam ? new Date(returnParam) : start
+      // ✅ departParam/returnParam now arrive as plain "YYYY-MM-DD".
+      // New Date("2026-06-23") parses as UTC midnight, which can still
+      // display as the previous day in a negative-offset timezone, so
+      // we parse the components manually to build a LOCAL Date instead.
+      const parseLocalDate = (value: string) => {
+        const [y, m, d] = value.split("-").map(Number)
+        if (!y || !m || !d) return new Date(value)
+        return new Date(y, m - 1, d)
+      }
+
+      const start = parseLocalDate(departParam)
+      const end = returnParam ? parseLocalDate(returnParam) : start
 
       setRange({
         startDate: start,
@@ -55,12 +79,12 @@ export default function SearchBox() {
     setTo(from)
   }
 
-  // ✅ SEARCH (CLEAN + SAFE)
+  // ✅ SEARCH (CLEAN + SAFE) — sends plain calendar dates, no UTC shift
   const search = () => {
-    let url = `/flights?origin=${from}&destination=${to}&depart=${range.startDate.toISOString()}&pax=${passengers}&mode=${tripType}`
+    let url = `/flights?origin=${from}&destination=${to}&depart=${toDateOnly(range.startDate)}&pax=${passengers}&mode=${tripType}`
 
     if (tripType === "roundtrip") {
-      url += `&return=${range.endDate.toISOString()}`
+      url += `&return=${toDateOnly(range.endDate)}`
     }
 
     router.push(url)
@@ -154,9 +178,9 @@ export default function SearchBox() {
             </p>
 
             <p className="text-lg font-semibold">
-              {range.startDate.toISOString().split("T")[0]}
+              {toDateOnly(range.startDate)}
               {tripType !== "oneway" &&
-                ` - ${range.endDate.toISOString().split("T")[0]}`}
+                ` - ${toDateOnly(range.endDate)}`}
             </p>
 
             {tripType !== "oneway" && (
