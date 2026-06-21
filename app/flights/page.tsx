@@ -238,16 +238,38 @@ export default function FlightsPage() {
     { key: "value", label: "Best Value", icon: "🎯", flight: bestValueFlight },
   ]
 
-  // ✅ Continue → next page with the selection summary (total only, no split-up)
+  // ✅ Continue → persist the full selection so /checkout has everything it
+  // needs without refetching, and so a page reload on /checkout doesn't
+  // lose the booking. sessionStorage survives reloads but clears when the
+  // tab/browser closes, which is the right lifetime for an in-progress
+  // booking (URL params alone aren't enough — there's too much data, and a
+  // copy-pasted/bookmarked URL shouldn't replay someone else's booking).
   const handleContinue = () => {
     if (!selectedDepartFlight) return
 
+    const totalPrice =
+      selectedDepartFlight.final_price + (selectedReturnFlight?.final_price || 0)
+
+    const checkoutSelection = {
+      departFlight: selectedDepartFlight,
+      returnFlight: selectedReturnFlight || null,
+      passengers,
+      mode,
+      totalPrice,
+      origin,
+      destination,
+      savedAt: Date.now(),
+    }
+
+    try {
+      sessionStorage.setItem("navigo:checkoutSelection", JSON.stringify(checkoutSelection))
+    } catch (err) {
+      console.error("Failed to persist checkout selection:", err)
+    }
+
     const params = new URLSearchParams({
       departId: String(selectedDepartFlight.id),
-      total: String(
-        selectedDepartFlight.final_price +
-          (selectedReturnFlight?.final_price || 0)
-      ),
+      total: String(totalPrice),
       pax: String(passengers),
       mode,
     })
