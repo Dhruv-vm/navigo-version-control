@@ -58,23 +58,29 @@ function formatDateLabel(timeStr?: string) {
   return d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })
 }
 
+// Stable-ish boarding-pass style record locator derived from the flight id,
+// purely cosmetic — gives the ticket motif something authentic to display.
+function pnrFrom(id: string | number) {
+  const str = String(id).replace(/[^a-zA-Z0-9]/g, "").toUpperCase()
+  return (str.slice(0, 6) || "NAV001").padEnd(6, "X")
+}
+
 const steps = [
-  { id: 1, label: "Search Flight" },
-  { id: 2, label: "Select Flight" },
-  { id: 3, label: "Passenger Details" },
+  { id: 1, label: "Search" },
+  { id: 2, label: "Select" },
+  { id: 3, label: "Passengers" },
   { id: 4, label: "Add-ons" },
   { id: 5, label: "Payment" },
-  { id: 6, label: "Confirmation" },
+  { id: 6, label: "Confirmed" },
 ]
 
 export default function CheckoutPage() {
   const router = useRouter()
 
   // ✅ STAYS ON THIS PAGE ON RELOAD — selection is read from sessionStorage
-  // on mount, not from component state alone. Since sessionStorage persists
-  // across a reload (and only clears when the tab/browser closes), a
-  // refresh on /checkout re-hydrates the exact same booking instead of
-  // bouncing back to /flights or showing a blank page.
+  // on mount. sessionStorage persists across a reload and only clears when
+  // the tab/browser closes, so a refresh on /checkout re-hydrates the exact
+  // same booking instead of bouncing to /flights or showing a blank page.
   const [selection, setSelection] = useState<CheckoutSelection | null>(null)
   const [loadState, setLoadState] = useState<"loading" | "found" | "missing">("loading")
 
@@ -96,19 +102,19 @@ export default function CheckoutPage() {
 
   if (loadState === "loading") {
     return (
-      <div className="min-h-screen bg-[#020617] text-white flex items-center justify-center">
-        <p className="text-gray-400">Loading your booking…</p>
+      <div className="min-h-screen bg-[#060B14] text-white flex items-center justify-center">
+        <p className="text-slate-500 text-sm tracking-wide">Preparing your itinerary…</p>
       </div>
     )
   }
 
   if (loadState === "missing" || !selection) {
     return (
-      <div className="min-h-screen bg-[#020617] text-white flex flex-col items-center justify-center gap-4">
-        <p className="text-gray-300">We couldn't find an active booking.</p>
+      <div className="min-h-screen bg-[#060B14] text-white flex flex-col items-center justify-center gap-4">
+        <p className="text-slate-300">We couldn't find an active booking.</p>
         <button
           onClick={() => router.push("/")}
-          className="px-6 py-3 rounded-xl bg-gradient-to-r from-blue-500 via-cyan-400 to-yellow-400 text-black font-semibold"
+          className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 text-[#060B14] font-semibold"
         >
           Search Flights
         </button>
@@ -122,153 +128,93 @@ export default function CheckoutPage() {
   // fee_amount are wired through the API response (columns added in the
   // migration — see flight_instances.tax_amount / fee_amount).
   const baseFare = departFlight.final_price + (returnFlight?.final_price || 0)
-  const taxesAndFees = Math.round(baseFare * 0.19) // placeholder ~19% combined, matches mockup ratio
-  const seatSelectionPrice = 0 // ✅ left at 0 for now, per your instruction — update later
+  const taxesAndFees = Math.round(baseFare * 0.19)
+  const seatSelectionPrice = 0 // left at 0 — updates once seat selection ships
   const mealsPrice = 0
   const totalDisplayPrice = baseFare + taxesAndFees + seatSelectionPrice + mealsPrice
 
   return (
-    <div className="min-h-screen bg-[#020617] text-white">
+    <div className="min-h-screen bg-[#060B14] text-white relative">
+
+      {/* ambient glow, quiet and far from the content */}
+      <div className="pointer-events-none fixed top-[-200px] left-[15%] w-[600px] h-[600px] bg-amber-500/[0.04] blur-[160px] rounded-full" />
+      <div className="pointer-events-none fixed bottom-[-200px] right-[10%] w-[500px] h-[500px] bg-cyan-400/[0.04] blur-[160px] rounded-full" />
+
       <Navbar />
 
-      <div className="max-w-7xl mx-auto px-6 pt-24 pb-16">
+      <div className="relative max-w-7xl mx-auto px-6 pt-24 pb-16">
 
-        {/* STEPPER */}
-        <div className="flex items-center gap-3 mb-8 overflow-x-auto">
+        {/* STEPPER — boarding-pass progress strip */}
+        <div className="flex items-center justify-between mb-10">
           <button
             onClick={() => router.push("/flights")}
-            className="flex items-center gap-1 text-sm text-gray-400 hover:text-white mr-2 shrink-0"
+            className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-300 transition-colors shrink-0"
           >
-            ← Back to results
+            <span aria-hidden>←</span> Back to results
           </button>
 
-          {steps.map((step, i) => (
-            <div key={step.id} className="flex items-center gap-3 shrink-0">
-              <div
-                className={`flex items-center gap-2 text-sm ${
-                  step.id === 3
-                    ? "text-blue-400 font-semibold"
-                    : step.id < 3
-                    ? "text-emerald-400"
-                    : "text-gray-500"
-                }`}
-              >
-                <span
-                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs border
-                  ${
-                    step.id === 3
-                      ? "border-blue-400 bg-blue-500/20"
-                      : step.id < 3
-                      ? "border-emerald-400 bg-emerald-500/20"
-                      : "border-gray-600"
-                  }`}
-                >
-                  {step.id < 3 ? "✓" : step.id}
-                </span>
-                {step.label}
+          <div className="flex items-center gap-1 overflow-x-auto">
+            {steps.map((step, i) => (
+              <div key={step.id} className="flex items-center shrink-0">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold border transition-colors
+                    ${
+                      step.id === 3
+                        ? "border-amber-400 bg-amber-400/15 text-amber-300"
+                        : step.id < 3
+                        ? "border-emerald-400/60 bg-emerald-400/10 text-emerald-300"
+                        : "border-white/10 text-slate-600"
+                    }`}
+                  >
+                    {step.id < 3 ? "✓" : step.id}
+                  </span>
+                  <span
+                    className={`text-xs hidden sm:inline ${
+                      step.id === 3 ? "text-amber-300 font-medium" : step.id < 3 ? "text-emerald-300/80" : "text-slate-600"
+                    }`}
+                  >
+                    {step.label}
+                  </span>
+                </div>
+                {i < steps.length - 1 && (
+                  <span
+                    className={`w-6 sm:w-10 h-px mx-2 ${step.id < 3 ? "bg-emerald-400/30" : "bg-white/10"}`}
+                  />
+                )}
               </div>
-              {i < steps.length - 1 && <span className="w-8 h-px bg-white/10" />}
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
         <div className="grid grid-cols-12 gap-6">
 
-          {/* LEFT — flight details */}
-          <div className="col-span-12 lg:col-span-8 space-y-6">
+          {/* LEFT — itinerary */}
+          <div className="col-span-12 lg:col-span-8 space-y-5">
 
-            <FlightSummaryCard flight={departFlight} passengers={passengers} />
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-medium">
+              Your itinerary
+            </p>
+
+            <BoardingPassCard flight={departFlight} passengers={passengers} label="Departure" />
 
             {returnFlight && (
-              <FlightSummaryCard flight={returnFlight} passengers={passengers} label="Return" />
+              <BoardingPassCard flight={returnFlight} passengers={passengers} label="Return" />
             )}
 
-            <WhyChooseThisFlight flight={departFlight} />
+            <WhyChooseThisFlight />
           </div>
 
-          {/* RIGHT — price summary */}
-          <div className="col-span-12 lg:col-span-4 space-y-4">
-            <div className="bg-[#0B1220] border border-white/10 rounded-2xl p-6 sticky top-24">
-
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold">Price Summary</h3>
-                <button className="text-xs text-blue-400 hover:underline">Fare Rules</button>
-              </div>
-
-              <div className="space-y-3 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Base Fare</span>
-                  <span>₹{baseFare.toLocaleString("en-IN")}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Taxes & Fees</span>
-                  <span>₹{taxesAndFees.toLocaleString("en-IN")}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Seat Selection</span>
-                  <span>₹{seatSelectionPrice.toLocaleString("en-IN")}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Meals</span>
-                  <span>₹{mealsPrice.toLocaleString("en-IN")}</span>
-                </div>
-              </div>
-
-              <div className="border-t border-white/10 my-4" />
-
-              <div className="flex justify-between items-end mb-6">
-                <span className="text-sm text-gray-400">Total Price</span>
-                <span className="text-2xl font-bold text-yellow-400">
-                  ₹{totalDisplayPrice.toLocaleString("en-IN")}
-                </span>
-              </div>
-
-              <div className="bg-emerald-500/10 border border-emerald-400/20 rounded-xl p-3 mb-3 flex items-center gap-3">
-                <span className="text-emerald-400 text-lg">🏆</span>
-                <div>
-                  <p className="text-emerald-400 text-sm font-semibold">You're getting a good fare</p>
-                  <p className="text-xs text-gray-400">Based on current pricing for this route</p>
-                </div>
-              </div>
-
-              <div className="bg-amber-500/10 border border-amber-400/20 rounded-xl p-3 mb-4 flex items-center gap-3">
-                <span className="text-amber-400 text-lg">💺</span>
-                <div>
-                  <p className="text-amber-400 text-sm font-semibold">Seat Selection</p>
-                  <p className="text-xs text-gray-400">Seats will be chosen after passenger details</p>
-                </div>
-              </div>
-
-              <button
-                onClick={() => router.push("/checkout/passengers")}
-                className="w-full px-6 py-3 rounded-xl font-semibold bg-gradient-to-r from-blue-500 via-cyan-400 to-yellow-400 text-black hover:scale-[1.02] transition flex items-center justify-center gap-2"
-              >
-                Continue to Passenger Details →
-              </button>
-
-              <p className="text-xs text-gray-500 text-center mt-3">
-                Next: Add passengers → choose seats → add add-ons
-              </p>
-
-              <div className="border-t border-white/10 my-5" />
-
-              <div className="space-y-3 text-xs text-gray-400">
-                <div className="flex items-center gap-2">
-                  <span>🛡️</span>
-                  <div>
-                    <p className="text-gray-200 font-medium">100% Safe Booking</p>
-                    <p>We use secure encryption to protect your data</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span>🎧</span>
-                  <div>
-                    <p className="text-gray-200 font-medium">24/7 Customer Support</p>
-                    <p>We are here to help anytime</p>
-                  </div>
-                </div>
-              </div>
-            </div>
+          {/* RIGHT — fare summary, ticket-stub motif */}
+          <div className="col-span-12 lg:col-span-4">
+            <FareSummary
+              baseFare={baseFare}
+              taxesAndFees={taxesAndFees}
+              seatSelectionPrice={seatSelectionPrice}
+              mealsPrice={mealsPrice}
+              totalDisplayPrice={totalDisplayPrice}
+              onContinue={() => router.push("/checkout/passengers")}
+            />
           </div>
         </div>
       </div>
@@ -276,24 +222,28 @@ export default function CheckoutPage() {
   )
 }
 
-function FlightSummaryCard({
+// ---------------------------------------------------------------------------
+// BOARDING PASS — flight itinerary card
+// ---------------------------------------------------------------------------
+
+function BoardingPassCard({
   flight,
   passengers,
   label,
 }: {
   flight: StoredFlight
   passengers: number
-  label?: string
+  label: string
 }) {
-  return (
-    <div className="bg-[#0B1220] border border-white/10 rounded-2xl p-6">
-      {label && (
-        <p className="text-xs uppercase tracking-wide text-gray-500 mb-3">{label}</p>
-      )}
+  const pnr = pnrFrom(flight.id)
 
-      <div className="flex items-start justify-between mb-4">
+  return (
+    <div className="relative bg-gradient-to-br from-[#0D1A2C] via-[#0B1729] to-[#0A1424] border border-white/[0.08] rounded-2xl overflow-hidden">
+
+      {/* top rail: airline + label + PNR, like a ticket header strip */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06] bg-white/[0.02]">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-white flex items-center justify-center overflow-hidden shadow-sm ring-1 ring-black/5">
+          <div className="w-10 h-10 rounded-lg bg-white flex items-center justify-center overflow-hidden shadow-sm ring-1 ring-black/5 shrink-0">
             <img
               src={airlineLogos[flight.airline] || "/airlines/default.png"}
               alt={flight.airline}
@@ -301,86 +251,246 @@ function FlightSummaryCard({
             />
           </div>
           <div>
-            <p className="font-semibold">{flight.airline}</p>
-            <p className="text-xs text-gray-500">
-              {flight.aircraft} • Economy Class
+            <div className="flex items-center gap-2">
+              <p className="font-semibold text-[15px]">{flight.airline}</p>
+              <span className="text-[10px] uppercase tracking-wide text-amber-300/90 bg-amber-400/10 border border-amber-400/20 rounded px-1.5 py-0.5">
+                {label}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500">
+              {flight.aircraft} · Economy Class
             </p>
           </div>
         </div>
-        <button className="text-xs text-blue-400 hover:underline flex items-center gap-1">
-          ✎ Edit Flight
-        </button>
-      </div>
 
-      <div className="grid grid-cols-3 items-center gap-4">
-        <div>
-          <p className="text-2xl font-bold tabular-nums">{formatTime(flight.departure_time)}</p>
-          <p className="text-xs text-gray-400">{formatDateLabel(flight.departure_time)}</p>
-          <p className="text-sm font-medium mt-1">{flight.origin}</p>
-        </div>
-
-        <div className="flex flex-col items-center">
-          <p className="text-xs text-gray-400 mb-1">{flight.duration || "--"}</p>
-          <div className="w-full h-px bg-white/10 relative">
-            <span className="absolute left-0 -top-1 w-2 h-2 bg-white rounded-full" />
-            <span className="absolute right-0 -top-1 w-2 h-2 bg-white rounded-full" />
+        <div className="flex items-center gap-4">
+          <div className="text-right hidden sm:block">
+            <p className="text-[10px] uppercase tracking-wide text-slate-500">Ref</p>
+            <p className="text-xs font-mono tracking-wider text-slate-400">{pnr}</p>
           </div>
-          <p className="text-xs text-gray-500 mt-1">
-            {flight.stops ? `${flight.stops} Stop` : "Non-stop"}
-          </p>
-        </div>
-
-        <div className="text-right">
-          <p className="text-2xl font-bold tabular-nums">{formatTime(flight.arrival_time)}</p>
-          <p className="text-xs text-gray-400">{formatDateLabel(flight.arrival_time)}</p>
-          <p className="text-sm font-medium mt-1">{flight.destination}</p>
+          <button className="text-xs text-cyan-300 hover:text-cyan-200 transition-colors flex items-center gap-1 shrink-0">
+            <span aria-hidden>✎</span> Edit
+          </button>
         </div>
       </div>
 
-      <div className="flex items-center gap-4 mt-4 pt-3 border-t border-white/5 text-gray-400 text-xs">
-        <span>📶 Wifi</span>
-        <span>🧳 Baggage</span>
-        <span>💺 Seat</span>
-        <span>🍽️ Meal</span>
-        <span className="ml-auto text-gray-500">{passengers} passenger{passengers > 1 ? "s" : ""}</span>
+      {/* main timeline */}
+      <div className="px-6 py-6">
+        <div className="grid grid-cols-3 items-center gap-4">
+          <div>
+            <p className="text-3xl font-semibold tabular-nums tracking-tight">{formatTime(flight.departure_time)}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{formatDateLabel(flight.departure_time)}</p>
+            <p className="text-base font-medium text-amber-200/90 mt-1.5">{flight.origin}</p>
+          </div>
+
+          <div className="flex flex-col items-center px-2">
+            <p className="text-[11px] text-slate-400 mb-2 font-medium">{flight.duration || "--"}</p>
+            <div className="w-full flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-300 shrink-0" />
+              <div className="flex-1 h-px bg-gradient-to-r from-amber-300/60 via-slate-600/40 to-cyan-300/60" />
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-300 shrink-0" />
+            </div>
+            <p className="text-[11px] text-slate-500 mt-2">
+              {flight.stops ? `${flight.stops} stop` : "Non-stop"}
+            </p>
+          </div>
+
+          <div className="text-right">
+            <p className="text-3xl font-semibold tabular-nums tracking-tight">{formatTime(flight.arrival_time)}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{formatDateLabel(flight.arrival_time)}</p>
+            <p className="text-base font-medium text-cyan-200/90 mt-1.5">{flight.destination}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* perforated divider */}
+      <div className="relative px-6">
+        <div className="border-t border-dashed border-white/[0.12]" />
+        <span className="absolute -left-3 -top-3 w-6 h-6 rounded-full bg-[#060B14]" />
+        <span className="absolute -right-3 -top-3 w-6 h-6 rounded-full bg-[#060B14]" />
+      </div>
+
+      {/* amenities + pax footer */}
+      <div className="flex items-center gap-5 px-6 py-3.5 text-slate-500 text-xs">
+        <span className="flex items-center gap-1.5"><span aria-hidden>📶</span> Wifi</span>
+        <span className="flex items-center gap-1.5"><span aria-hidden>🧳</span> Baggage</span>
+        <span className="flex items-center gap-1.5"><span aria-hidden>💺</span> Seat</span>
+        <span className="flex items-center gap-1.5"><span aria-hidden>🍽️</span> Meal</span>
+        <span className="ml-auto text-slate-400">
+          {passengers} passenger{passengers > 1 ? "s" : ""}
+        </span>
       </div>
     </div>
   )
 }
 
-function WhyChooseThisFlight({ flight }: { flight: StoredFlight }) {
+// ---------------------------------------------------------------------------
+// FARE SUMMARY — ticket-stub signature element
+// ---------------------------------------------------------------------------
+
+function FareSummary({
+  baseFare,
+  taxesAndFees,
+  seatSelectionPrice,
+  mealsPrice,
+  totalDisplayPrice,
+  onContinue,
+}: {
+  baseFare: number
+  taxesAndFees: number
+  seatSelectionPrice: number
+  mealsPrice: number
+  totalDisplayPrice: number
+  onContinue: () => void
+}) {
   return (
-    <div className="bg-[#0B1220] border border-white/10 rounded-2xl p-6">
-      <h3 className="font-bold mb-4">Why choose this flight?</h3>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-        <div className="flex items-center gap-2">
-          <span>⭐</span>
+    <div className="sticky top-24">
+      <div className="relative bg-gradient-to-b from-[#0D1A2C] to-[#0A1424] border border-white/[0.08] rounded-2xl overflow-hidden">
+
+        {/* header */}
+        <div className="flex items-center justify-between px-6 py-5">
           <div>
-            <p className="font-medium">Top Rated</p>
-            <p className="text-xs text-gray-500">Trusted by travelers</p>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Fare Summary</p>
           </div>
+          <button className="text-xs text-cyan-300 hover:text-cyan-200 transition-colors">Fare rules</button>
         </div>
-        <div className="flex items-center gap-2">
-          <span>🕒</span>
-          <div>
-            <p className="font-medium">On-time Performance</p>
-            <p className="text-xs text-gray-500">Reliable schedule</p>
+
+        {/* line items */}
+        <div className="px-6 space-y-3 text-sm">
+          <LineItem label="Base Fare" value={baseFare} />
+          <LineItem label="Taxes & Fees" value={taxesAndFees} />
+          <LineItem label="Seat Selection" value={seatSelectionPrice} muted />
+          <LineItem label="Meals" value={mealsPrice} muted />
+        </div>
+
+        {/* perforated stub divider — the signature element */}
+        <div className="relative my-5 px-6">
+          <div className="border-t border-dashed border-white/[0.14]" />
+          <span className="absolute -left-[26px] -top-3 w-6 h-6 rounded-full bg-[#060B14]" />
+          <span className="absolute -right-[26px] -top-3 w-6 h-6 rounded-full bg-[#060B14]" />
+        </div>
+
+        {/* total */}
+        <div className="px-6 flex items-end justify-between mb-5">
+          <span className="text-sm text-slate-400">Total Price</span>
+          <span className="text-[28px] leading-none font-semibold tabular-nums text-amber-300">
+            ₹{totalDisplayPrice.toLocaleString("en-IN")}
+          </span>
+        </div>
+
+        <div className="px-6 space-y-2.5 mb-5">
+          <InfoStrip
+            tone="emerald"
+            icon="✓"
+            title="You're getting a good fare"
+            subtitle="Based on current pricing for this route"
+          />
+          <InfoStrip
+            tone="amber"
+            icon="💺"
+            title="Seat selection"
+            subtitle="Choose seats after passenger details"
+          />
+        </div>
+
+        <div className="px-6 pb-6">
+          <button
+            onClick={onContinue}
+            className="w-full px-6 py-3.5 rounded-xl font-semibold bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 text-[#060B14] hover:brightness-105 active:scale-[0.99] transition-all flex items-center justify-center gap-2 shadow-[0_8px_30px_rgba(251,191,36,0.15)]"
+          >
+            Continue to Passenger Details
+            <span aria-hidden>→</span>
+          </button>
+
+          <p className="text-[11px] text-slate-500 text-center mt-3">
+            Next: passengers → seats → add-ons
+          </p>
+        </div>
+
+        <div className="border-t border-white/[0.06] px-6 py-5 space-y-3">
+          <TrustRow icon="🛡️" title="100% Safe Booking" subtitle="Secure encryption protects your data" />
+          <TrustRow icon="🎧" title="24/7 Customer Support" subtitle="We're here to help anytime" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LineItem({ label, value, muted }: { label: string; value: number; muted?: boolean }) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-slate-400">{label}</span>
+      <span className={muted ? "text-slate-500" : "text-slate-200"}>
+        ₹{value.toLocaleString("en-IN")}
+      </span>
+    </div>
+  )
+}
+
+function InfoStrip({
+  tone,
+  icon,
+  title,
+  subtitle,
+}: {
+  tone: "emerald" | "amber"
+  icon: string
+  title: string
+  subtitle: string
+}) {
+  const toneClasses =
+    tone === "emerald"
+      ? "bg-emerald-400/[0.08] border-emerald-400/20 text-emerald-300"
+      : "bg-amber-400/[0.08] border-amber-400/20 text-amber-300"
+
+  return (
+    <div className={`rounded-xl border px-3.5 py-3 flex items-start gap-3 ${toneClasses}`}>
+      <span className="text-base leading-none mt-0.5" aria-hidden>{icon}</span>
+      <div>
+        <p className="text-[13px] font-medium">{title}</p>
+        <p className="text-[11px] text-slate-400 mt-0.5">{subtitle}</p>
+      </div>
+    </div>
+  )
+}
+
+function TrustRow({ icon, title, subtitle }: { icon: string; title: string; subtitle: string }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="text-sm" aria-hidden>{icon}</span>
+      <div>
+        <p className="text-xs text-slate-300 font-medium">{title}</p>
+        <p className="text-[11px] text-slate-500">{subtitle}</p>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// WHY CHOOSE THIS FLIGHT
+// ---------------------------------------------------------------------------
+
+function WhyChooseThisFlight() {
+  const items = [
+    { icon: "⭐", title: "Top Rated", subtitle: "Trusted by travelers" },
+    { icon: "🕒", title: "On-time Performance", subtitle: "Reliable schedule" },
+    { icon: "💺", title: "Comfortable Journey", subtitle: "Wide seats & great service" },
+    { icon: "🏅", title: "Best Value", subtitle: "Great price for the journey" },
+  ]
+
+  return (
+    <div className="bg-gradient-to-br from-[#0D1A2C] via-[#0B1729] to-[#0A1424] border border-white/[0.08] rounded-2xl p-6">
+      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500 mb-4">Why choose this flight</p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-5 text-sm">
+        {items.map((item) => (
+          <div key={item.title} className="flex items-start gap-2.5">
+            <span className="text-base mt-0.5" aria-hidden>{item.icon}</span>
+            <div>
+              <p className="font-medium text-slate-200">{item.title}</p>
+              <p className="text-xs text-slate-500 mt-0.5">{item.subtitle}</p>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <span>💺</span>
-          <div>
-            <p className="font-medium">Comfortable Journey</p>
-            <p className="text-xs text-gray-500">Wide seats & great service</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <span>🏅</span>
-          <div>
-            <p className="font-medium">Best Value</p>
-            <p className="text-xs text-gray-500">Great price for the journey</p>
-          </div>
-        </div>
+        ))}
       </div>
     </div>
   )
