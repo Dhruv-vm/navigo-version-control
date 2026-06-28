@@ -21,6 +21,12 @@ import { supabase } from "@/lib/supabase"
 // "selecting" the same seat number — the only safeguard here is the
 // available_seats count not going negative. If real seat-level locking is
 // ever needed, this needs an actual seat-claims table behind it.
+//
+// NOTE: seat.passengerId here is expected to be a booking_passenger.id
+// (uuid string) coming from the frontend's `passengers` array, which in
+// turn should be sourced from selection.savedPassengers. No change needed
+// in this file for the "names not showing" issue — that's fixed upstream
+// in the passengers POST route and the seats page's read of savedPassengers.
 
 type SeatSelectionPayload = {
   legs: {

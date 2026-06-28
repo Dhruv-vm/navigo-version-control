@@ -18,6 +18,18 @@ import { supabase } from "@/lib/supabase"
 // available and both pick it — there is currently no row-level lock
 // preventing that collision. If/when real seat-level booking integrity is
 // needed, this needs a seat-claims table behind it.
+//
+// ✅ DEBUG LOGGING ADDED — if you're seeing "Seat selection isn't available
+// for this flight yet" in the UI even though flight_instance_classes rows
+// exist in Supabase, the #1 cause is a flight_instance_id MISMATCH: the
+// frontend is passing the wrong id in the URL (e.g. a flights.id instead of
+// a flight_instances.id). The console.log lines below print exactly what
+// instanceId this route received and how many class rows it found for it —
+// check your server logs (terminal running `next dev`, or your host's
+// function logs in prod) next time this happens. If the count is 0, copy
+// the printed instanceId and run:
+//   select * from flight_instance_classes where flight_instance_id = '<that id>';
+// in Supabase to confirm directly.
 
 type CabinClassRow = {
   cabin_class: string
@@ -150,6 +162,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ instance
       return NextResponse.json({ error: "Missing flight instance id" }, { status: 400 })
     }
 
+    // ✅ DEBUG LOG — copy this id and check it against
+    // flight_instance_classes.flight_instance_id in Supabase if seats are
+    // missing on the frontend.
+    console.log("[seats GET] instanceId received from frontend:", instanceId, "bookingId:", bookingId)
+
     const { data: classRows, error: classError } = await supabase
       .from("flight_instance_classes")
       .select("cabin_class, seat_layout, price_multiplier, available_seats, total_seats, class_base_price")
@@ -159,6 +176,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ instance
       console.error("FLIGHT INSTANCE CLASSES FETCH ERROR:", classError)
       return NextResponse.json({ error: classError.message }, { status: 500 })
     }
+
+    // ✅ DEBUG LOG — if this prints 0 but you can see rows for this flight
+    // in Supabase, the instanceId above does not match
+    // flight_instance_classes.flight_instance_id for those rows. That's the
+    // mismatch to fix (almost always: the frontend sent flights.id /
+    // departFlight.id instead of the actual flight_instance row id).
+    console.log("[seats GET] cabin class rows found:", classRows?.length ?? 0)
 
     if (!classRows || classRows.length === 0) {
       // No cabin class data for this flight instance — nothing to render.

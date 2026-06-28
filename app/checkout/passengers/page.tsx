@@ -16,6 +16,7 @@ type StoredFlight = {
   stops?: number
   final_price: number
   duration?: string
+  travel_date?: string
 }
 
 type CheckoutSelection = {
@@ -178,6 +179,7 @@ export default function PassengerDetailsPage() {
       console.log("========== STORAGE ==========")
       console.log("Depart departure_time:", parsed.departFlight?.departure_time)
       console.log("Depart arrival_time:", parsed.departFlight?.arrival_time)
+      console.log("Return present:", !!parsed.returnFlight)
       console.log("=============================")
 
       setSelection(parsed)
@@ -358,8 +360,9 @@ export default function PassengerDetailsPage() {
     )
   }
 
-  const { departFlight } = selection
-  const baseFare = departFlight.final_price + (selection.returnFlight?.final_price || 0)
+  const { departFlight, returnFlight } = selection
+  const isRoundTrip = !!returnFlight
+  const baseFare = departFlight.final_price + (returnFlight?.final_price || 0)
   const taxesAndFees = Math.round(baseFare * 0.19)
   const total = baseFare + taxesAndFees
 
@@ -375,15 +378,31 @@ export default function PassengerDetailsPage() {
       <div className={`relative max-w-7xl mx-auto px-6 pt-24 pb-32 transition-all duration-700 ease-out ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"}`}>
         <Stepper activeId={3} />
 
-        <div className="transition-all duration-500 ease-out" style={{ transitionDelay: mounted ? "80ms" : "0ms" }}>
-          <BoardingPassMini flight={departFlight} travelDate={selection.departFlight.travel_date} />
+        <div className="space-y-3">
+          <div className="transition-all duration-500 ease-out" style={{ transitionDelay: mounted ? "80ms" : "0ms" }}>
+            <BoardingPassMini
+              flight={departFlight}
+              travelDate={departFlight.travel_date}
+              tag={isRoundTrip ? "Departure" : undefined}
+            />
+          </div>
+
+          {isRoundTrip && (
+            <div className="transition-all duration-500 ease-out" style={{ transitionDelay: mounted ? "130ms" : "0ms" }}>
+              <BoardingPassMini
+                flight={returnFlight}
+                travelDate={returnFlight.travel_date}
+                tag="Return"
+              />
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-12 gap-6 mt-6">
           <div className="col-span-12 lg:col-span-8 space-y-5">
             <div
               className="bg-gradient-to-br from-[#0D1A2C] via-[#0B1729] to-[#0A1424] border border-white/[0.08] rounded-2xl p-6 flex items-center justify-between flex-wrap gap-3 transition-all duration-500 ease-out"
-              style={{ transitionDelay: mounted ? "140ms" : "0ms", opacity: mounted ? 1 : 0, transform: mounted ? "translateY(0)" : "translateY(12px)" }}
+              style={{ transitionDelay: mounted ? "180ms" : "0ms", opacity: mounted ? 1 : 0, transform: mounted ? "translateY(0)" : "translateY(12px)" }}
             >
               <div className="flex items-center gap-3">
                 <span className="w-9 h-9 rounded-full bg-cyan-400/10 border border-cyan-400/20 flex items-center justify-center text-cyan-300">👤</span>
@@ -410,7 +429,7 @@ export default function PassengerDetailsPage() {
                   isExpanded={expandedId === passenger.localId}
                   errors={errorsByPassenger[passenger.localId] || {}}
                   canRemove={passengers.length > 1}
-                  entranceDelay={180 + index * 90}
+                  entranceDelay={220 + index * 90}
                   mounted={mounted}
                   onToggle={() => setExpandedId((cur) => (cur === passenger.localId ? null : passenger.localId))}
                   onCollapseWithValidation={() => validateAndCollapse(passenger.localId)}
@@ -450,8 +469,8 @@ export default function PassengerDetailsPage() {
 
           <div className="col-span-12 lg:col-span-4">
             <TripSummary
-              flight={departFlight}
-              travelDate={(selection.departFlight as any).travel_date}
+              departFlight={departFlight}
+              returnFlight={returnFlight}
               passengerCount={passengers.length}
               baseFare={baseFare}
               taxesAndFees={taxesAndFees}
@@ -504,7 +523,7 @@ function Stepper({ activeId }: { activeId: number }) {
   )
 }
 
-function BoardingPassMini({ flight, travelDate }: { flight: StoredFlight; travelDate?: string }) {
+function BoardingPassMini({ flight, travelDate, tag }: { flight: StoredFlight; travelDate?: string; tag?: "Departure" | "Return" }) {
   return (
     <div className="relative bg-gradient-to-br from-[#0D1A2C] via-[#0B1729] to-[#0A1424] border border-white/[0.08] rounded-2xl overflow-hidden">
       <div className="flex items-center justify-between px-6 py-4 flex-wrap gap-3">
@@ -513,7 +532,17 @@ function BoardingPassMini({ flight, travelDate }: { flight: StoredFlight; travel
             <img src={airlineLogos[flight.airline] || "/airlines/default.png"} alt={flight.airline} className="w-7 h-7 object-contain" />
           </div>
           <div>
-            <p className="font-semibold text-[15px]">{flight.airline}</p>
+            <div className="flex items-center gap-2">
+              {tag && (
+                <span className={`text-[10px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 border
+                  ${tag === "Departure"
+                    ? "text-amber-300 bg-amber-400/10 border-amber-400/20"
+                    : "text-cyan-300 bg-cyan-400/10 border-cyan-400/20"}`}>
+                  {tag}
+                </span>
+              )}
+              <p className="font-semibold text-[15px]">{flight.airline}</p>
+            </div>
             <p className="text-xs text-slate-500">{flight.aircraft} · Economy</p>
           </div>
         </div>
@@ -712,11 +741,13 @@ function Checkbox({ checked, onChange }: { checked: boolean; onChange: () => voi
   )
 }
 
-function TripSummary({ flight, travelDate, passengerCount, baseFare, taxesAndFees, total, pulseSavings, canContinue, isSaving, saveError, onContinue }: {
-  flight: StoredFlight; travelDate?: string; passengerCount: number; baseFare: number; taxesAndFees: number; total: number
+function TripSummary({ departFlight, returnFlight, passengerCount, baseFare, taxesAndFees, total, pulseSavings, canContinue, isSaving, saveError, onContinue }: {
+  departFlight: StoredFlight; returnFlight: StoredFlight | null; passengerCount: number
+  baseFare: number; taxesAndFees: number; total: number
   pulseSavings: boolean; canContinue: boolean; isSaving: boolean; saveError: string | null; onContinue: () => void
 }) {
   const displayedTotal = useCountUp(total, 900)
+  const isRoundTrip = !!returnFlight
 
   return (
     <div className="sticky top-24 space-y-4">
@@ -726,34 +757,18 @@ function TripSummary({ flight, travelDate, passengerCount, baseFare, taxesAndFee
           <span className="text-xs text-cyan-300">{passengerCount} Passenger{passengerCount > 1 ? "s" : ""}</span>
         </div>
 
-        <div className="px-6 pb-5 flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-md bg-white flex items-center justify-center overflow-hidden">
-              <img src={airlineLogos[flight.airline] || "/airlines/default.png"} alt={flight.airline} className="w-5 h-5 object-contain" />
-            </div>
-            <p className="text-sm font-medium">{flight.airline}</p>
-          </div>
-          <span className="text-[11px] text-cyan-300 bg-cyan-400/10 border border-cyan-400/20 rounded px-2 py-0.5">Economy</span>
-        </div>
+        <TripSummaryLeg flight={departFlight} tag={isRoundTrip ? "Departure" : undefined} />
 
-        <div className="px-6 pb-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-lg font-semibold tabular-nums">{formatTime(flight.departure_time)}</p>
-              <p className="text-[11px] text-slate-500">{flight.origin}</p>
+        {returnFlight && (
+          <>
+            <div className="relative px-6">
+              <div className="border-t border-dashed border-white/[0.14]" />
+              <span className="absolute -left-3 -top-3 w-6 h-6 rounded-full bg-[#060B14]" />
+              <span className="absolute -right-3 -top-3 w-6 h-6 rounded-full bg-[#060B14]" />
             </div>
-            <div className="flex flex-col items-center flex-1 px-3">
-              <p className="text-[10px] text-slate-400">{flight.duration || "--"}</p>
-              <div className="w-full h-px bg-gradient-to-r from-amber-300/50 to-cyan-300/50 my-1" />
-              <p className="text-[10px] text-slate-500">{flight.stops ? `${flight.stops} stop` : "Non-stop"}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-lg font-semibold tabular-nums">{formatTime(flight.arrival_time)}</p>
-              <p className="text-[11px] text-slate-500">{flight.destination}</p>
-            </div>
-          </div>
-          <p className="text-[11px] text-slate-500 mt-2">{formatDateLabel(flight.departure_time, travelDate)}</p>
-        </div>
+            <TripSummaryLeg flight={returnFlight} tag="Return" />
+          </>
+        )}
 
         <div className="relative px-6">
           <div className="border-t border-dashed border-white/[0.14]" />
@@ -763,7 +778,7 @@ function TripSummary({ flight, travelDate, passengerCount, baseFare, taxesAndFee
 
         <div className="px-6 py-5 space-y-2.5 text-sm">
           <div className="flex justify-between">
-            <span className="text-slate-400">{passengerCount} x Adult</span>
+            <span className="text-slate-400">{passengerCount} x Adult{isRoundTrip ? " (Round Trip)" : ""}</span>
             <span className="text-slate-200">₹{baseFare.toLocaleString("en-IN")}</span>
           </div>
           <div className="flex justify-between">
@@ -813,6 +828,49 @@ function TripSummary({ flight, travelDate, passengerCount, baseFare, taxesAndFee
       </div>
       <NavBotTip />
     </div>
+  )
+}
+
+function TripSummaryLeg({ flight, tag }: { flight: StoredFlight; tag?: "Departure" | "Return" }) {
+  return (
+    <>
+      <div className="px-6 pb-3 flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-md bg-white flex items-center justify-center overflow-hidden">
+            <img src={airlineLogos[flight.airline] || "/airlines/default.png"} alt={flight.airline} className="w-5 h-5 object-contain" />
+          </div>
+          <p className="text-sm font-medium">{flight.airline}</p>
+          {tag && (
+            <span className={`text-[10px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 border
+              ${tag === "Departure"
+                ? "text-amber-300 bg-amber-400/10 border-amber-400/20"
+                : "text-cyan-300 bg-cyan-400/10 border-cyan-400/20"}`}>
+              {tag}
+            </span>
+          )}
+        </div>
+        <span className="text-[11px] text-cyan-300 bg-cyan-400/10 border border-cyan-400/20 rounded px-2 py-0.5">Economy</span>
+      </div>
+
+      <div className="px-6 pb-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-lg font-semibold tabular-nums">{formatTime(flight.departure_time)}</p>
+            <p className="text-[11px] text-slate-500">{flight.origin}</p>
+          </div>
+          <div className="flex flex-col items-center flex-1 px-3">
+            <p className="text-[10px] text-slate-400">{flight.duration || "--"}</p>
+            <div className="w-full h-px bg-gradient-to-r from-amber-300/50 to-cyan-300/50 my-1" />
+            <p className="text-[10px] text-slate-500">{flight.stops ? `${flight.stops} stop` : "Non-stop"}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-lg font-semibold tabular-nums">{formatTime(flight.arrival_time)}</p>
+            <p className="text-[11px] text-slate-500">{flight.destination}</p>
+          </div>
+        </div>
+        <p className="text-[11px] text-slate-500 mt-2">{formatDateLabel(flight.departure_time, flight.travel_date)}</p>
+      </div>
+    </>
   )
 }
 
