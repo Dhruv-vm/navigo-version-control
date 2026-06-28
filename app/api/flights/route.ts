@@ -1,134 +1,156 @@
-import { NextResponse } from "next/server"
-import { supabase } from "@/lib/supabase"
-import { computeDynamicPrice, TOTAL_SEATS } from "@/lib/pricing"
+import { supabase } from '@/lib/supabase'
+import { NextResponse } from 'next/server'
 
-// ✅ FIXED — the old code did:
-//   new Date(depart).toISOString().split("T")[0]
-// `new Date("2026-06-22")` is parsed as UTC midnight. `.toISOString()`
-// then converts back to UTC — which silently shifts the date by a day
-// whenever the incoming string carries a timezone offset, or whenever
-// the server isn't running in UTC. Now that SearchBox sends plain
-// "YYYY-MM-DD" strings, the regex branch below handles them directly
-// and this Date fallback only exists as a defensive safety net.
-function toDateOnly(value: string): string {
-  const plainMatch = value.match(/^(\d{4}-\d{2}-\d{2})/)
-  if (plainMatch) return plainMatch[1]
-
-  const d = new Date(value)
-  if (isNaN(d.getTime())) return value
-
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${year}-${month}-${day}`
+// ✅ FIXED — departure_time / arrival_time are "HH:MM:SS" strings, NOT ISO datetimes.
+// Parsing them as `new Date("06:00:00")` gives Invalid Date → NaN duration.
+// We now compute duration by splitting on ":" and doing pure arithmetic.
+function parsTimeToMinutes(timeStr: string): number {
+  const [h, m] = timeStr.split(":").map(Number)
+  return h * 60 + (m || 0)
 }
 
+function getDurationMinutes(flight: any): number {
+  const dep = parsTimeToMinutes(flight.departure_time || "00:00")
+  let arr = parsTimeToMinutes(flight.arrival_time || "00:00")
+  // Handle overnight flights (arrival next day)
+  if (arr < dep) arr += 24 * 60
+  return arr - dep
+}
+
+function formatDuration(minutes: number): string {
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return m > 0 ? `${h}h ${m}m` : `${h}h`
+}
+
+// GET flights
 export async function GET(req: Request) {
-  try {
-    const { searchParams } = new URL(req.url)
-    const origin = searchParams.get("origin")
-    const destination = searchParams.get("destination")
-    const depart = searchParams.get("depart")
+  const { searchParams } = new URL(req.url)
 
-    if (!origin || !destination || !depart) {
-      return NextResponse.json(
-        { error: "Missing params" },
-        { status: 400 }
-      )
-    }
+  const origin = searchParams.get('origin')
+  const destination = searchParams.get('destination')
 
-    // ✅ timezone-safe date normalization (see toDateOnly above)
-    const departDate = toDateOnly(depart)
-
-    const { data, error } = await supabase
-      .from("flight_instances")
-      .select(`
+  let query = supabase
+    .from("flights")
+    .select(`
+      *,
+      flight_instances (
         id,
         travel_date,
         available_seats,
-        flights!inner (
-          id,
-          airline,
-          origin,
-          destination,
-          departure_time,
-          arrival_time,
-          aircraft,
-          base_price,
-          stops
-        )
-      `)
-      .eq("travel_date", departDate)
-      .eq("flights.origin", origin.toUpperCase())
-      .eq("flights.destination", destination.toUpperCase())
-
-    if (error) {
-      console.error("SUPABASE ERROR:", error)
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
+        seats_economy,
+        seats_premium_economy,
+        seats_business,
+        seats_first,
+        tax_amount,
+        fee_amount
       )
-    }
+    `)
 
-    console.log("[/api/flights] query:", {
-      origin: origin.toUpperCase(),
-      destination: destination.toUpperCase(),
-      departDate,
-      rowsFound: data?.length ?? 0,
-    })
+  if (origin) query = query.eq('origin', origin)
+  if (destination) query = query.eq('destination', destination)
 
-    // ✅ FIX RELATION (array → object) + ✅ DYNAMIC PRICING
-    const flights = (data || [])
-      .map((item: any) => {
-        const f = Array.isArray(item.flights)
-          ? item.flights[0]
-          : item.flights
+  const { data, error } = await query
 
-        if (!f) return null
-
-        const basePrice = f.base_price && f.base_price > 0 ? f.base_price : 5000
-        const availableSeats =
-          typeof item.available_seats === "number" ? item.available_seats : TOTAL_SEATS
-
-        // 🧠 DYNAMIC PRICING — replaces the old flat `final_price = base_price`.
-        // Factors in how full the flight is, how close departure is, day
-        // of week, and a small per-instance jitter. See lib/pricing.ts for
-        // the full breakdown of each factor.
-        const pricing = computeDynamicPrice({
-          basePrice,
-          availableSeats,
-          totalSeats: TOTAL_SEATS,
-          travelDate: item.travel_date,
-        })
-
-        return {
-          id: item.id,
-          airline: f.airline,
-          origin: f.origin,
-          destination: f.destination,
-          // ✅ combine date + time
-          departure_time: `${item.travel_date}T${f.departure_time}`,
-          arrival_time: `${item.travel_date}T${f.arrival_time}`,
-          aircraft: f.aircraft,
-          stops: f.stops ?? 0,
-          final_price: pricing.finalPrice,
-          // 🧠 extra fields the "AI Box" / Price Insight widget can use
-          // directly without recomputing anything client-side
-          base_price: basePrice,
-          available_seats: availableSeats,
-          occupancy_pct: pricing.occupancyPct,
-          days_until_departure: pricing.daysUntilDeparture,
-          price_factor: Math.round(pricing.combinedMultiplier * 100) / 100,
-        }
-      })
-      .filter(Boolean)
-
-    return NextResponse.json({ flights })
-  } catch (err) {
-    console.error("SERVER ERROR:", err)
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    )
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
+
+  if (!data || data.length === 0) {
+    return NextResponse.json([])
+  }
+
+  // 🔥 STEP 1: Dynamic Pricing
+  const enhancedData = data.map((flight) => {
+    const instance = flight.flight_instances?.[0]
+    const demandFactor = Math.random() * 0.3 + 1
+
+    // ✅ FIXED — don't use `new Date()` on a bare time string for hoursLeft either.
+    // We compare today's date + departure time vs now. If your DB stores a full
+    // travel_date on the instance, use that; otherwise we approximate with today.
+    const travelDate = instance?.travel_date
+      ? new Date(instance.travel_date)
+      : new Date()
+
+    const [depH, depM] = (flight.departure_time || "00:00").split(":").map(Number)
+    const departure = new Date(travelDate)
+    departure.setHours(depH, depM || 0, 0, 0)
+
+    const hoursLeft = (departure.getTime() - Date.now()) / (1000 * 60 * 60)
+
+    let timeFactor = 1
+    if (hoursLeft < 24) timeFactor = 1.5
+    else if (hoursLeft < 72) timeFactor = 1.2
+
+    const final_price = Math.round(flight.base_price * demandFactor * timeFactor)
+
+    // ✅ FIXED — duration is now a human-readable string ("2h 30m"), not NaN milliseconds
+    const durationMins = getDurationMinutes(flight)
+    const duration = formatDuration(durationMins)
+
+    return {
+      ...flight,
+      flight_instance_id: instance?.id,
+      travel_date: instance?.travel_date,
+      available_seats: instance?.available_seats,
+      seats_economy: instance?.seats_economy,
+      seats_premium_economy: instance?.seats_premium_economy,
+      seats_business: instance?.seats_business,
+      seats_first: instance?.seats_first,
+      tax_amount: instance?.tax_amount,
+      fee_amount: instance?.fee_amount,
+      final_price,
+      duration,           // ✅ now "2h 30m" instead of NaN
+      duration_minutes: durationMins,  // ✅ keep numeric version for sorting
+    }
+  })
+
+  // 🔥 STEP 2: Ranking (Best Flights) — use duration_minutes for sorting
+  const rankedFlights = [...enhancedData].sort((a, b) => {
+    const priceWeight = 0.7
+    const durationWeight = 0.3
+    const scoreA = a.final_price * priceWeight + a.duration_minutes * durationWeight
+    const scoreB = b.final_price * priceWeight + b.duration_minutes * durationWeight
+    return scoreA - scoreB
+  })
+
+  // 🔥 STEP 3: Find Cheapest & Fastest
+  const cheapest = [...enhancedData].sort((a, b) => a.final_price - b.final_price)[0]
+  const fastest = [...enhancedData].sort((a, b) => a.duration_minutes - b.duration_minutes)[0]
+
+  // 🔥 STEP 4: Tagging
+  const taggedFlights = rankedFlights.map((flight, index) => {
+    const tags: string[] = []
+    if (index === 0) tags.push("Best")
+    if (flight.id === cheapest.id) tags.push("Cheapest")
+    if (flight.id === fastest.id) tags.push("Fastest")
+    if (tags.length === 0) tags.push("Recommended")
+    return { ...flight, tags }
+  })
+
+  console.log("FIRST FLIGHT sample:", {
+    departure_time: taggedFlights[0]?.departure_time,
+    arrival_time: taggedFlights[0]?.arrival_time,
+    duration: taggedFlights[0]?.duration,
+    duration_minutes: taggedFlights[0]?.duration_minutes,
+    final_price: taggedFlights[0]?.final_price,
+  })
+
+  return NextResponse.json(taggedFlights)
+}
+
+// CREATE flight
+export async function POST(req: Request) {
+  const body = await req.json()
+
+  const { data, error } = await supabase
+    .from('flights')
+    .insert([body])
+    .select()
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json(data)
 }

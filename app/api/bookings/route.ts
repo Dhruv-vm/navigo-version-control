@@ -44,12 +44,27 @@ type BookingPayload = {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as BookingPayload
+    console.log("BODY RECEIVED")
+    console.log(body)
 
     if (!body.departFlightInstanceId || !Array.isArray(body.passengers) || body.passengers.length === 0) {
       return NextResponse.json({ error: "Missing required booking fields" }, { status: 400 })
     }
 
     const primaryContact = body.passengers.find((p) => p.isPrimaryContact)
+
+    console.log("=== BOOKING REQUEST ===")
+    console.log(body)
+
+    console.log("departFlightInstanceId:", body.departFlightInstanceId)
+
+    const { data: instance, error: instanceError } = await supabase
+      .from("flight_instances")
+      .select("id, flight_id")
+      .eq("id", body.departFlightInstanceId)
+
+    console.log("Matching flight instance:", instance)
+    console.log("Instance error:", instanceError)
 
     const bookingRow = {
       depart_flight_instance_id: body.departFlightInstanceId,
@@ -64,6 +79,9 @@ export async function POST(req: Request) {
       contact_email: primaryContact?.email || null,
       contact_mobile: primaryContact?.mobile || null,
     }
+   
+
+console.log("Flight Instance Exists:", instance)
 
     let bookingId = body.bookingId
 
