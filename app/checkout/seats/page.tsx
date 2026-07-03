@@ -261,6 +261,11 @@ export default function SeatSelectionPage() {
   const [legsLoading, setLegsLoading] = useState(true)
   const [legsError, setLegsError] = useState<string | null>(null)
 
+  // Fallback passenger fetch — used only when sessionStorage didn't carry
+  // savedPassengers over from the passenger-details step (see debug note
+  // below). Keeps this page correct even if that upstream bug isn't fixed.
+  const [fetchedPassengers, setFetchedPassengers] = useState<StoredPassenger[] | null>(null)
+
   const [activeLegIndex, setActiveLegIndex] = useState(0)
   const [activePassengerIndex, setActivePassengerIndex] = useState(0)
   const [picks, setPicks] = useState<SelectionMap>({})
@@ -269,6 +274,13 @@ export default function SeatSelectionPage() {
 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+
+  // ---- "skip seat selection" smart-assign modal ------------------------
+  const [skipModalOpen, setSkipModalOpen] = useState(false)
+  const [skipStep, setSkipStep] = useState<"cabin" | "mode" | "error">("cabin")
+  const [skipCabin, setSkipCabin] = useState<CabinKey>("economy")
+  const [skipErrorMessage, setSkipErrorMessage] = useState<string | null>(null)
+  const [skipPartialNote, setSkipPartialNote] = useState<string | null>(null)
 
   // ---- hydrate selection from sessionStorage --------------------------------
   useEffect(() => {
@@ -292,6 +304,33 @@ export default function SeatSelectionPage() {
       setLoadState("missing")
     }
   }, [])
+
+  // ---- always fetch real passenger names/details straight from the booking,
+  // by bookingId — sessionStorage's savedPassengers is only used as an
+  // instant first paint while this request is in flight, then overwritten.
+  // Assumes GET /api/bookings/:id/passengers returns booking_passenger rows
+  // (snake_case) either as `{ passengers: [...] }` or a bare array — adjust
+  // the path/shape below if your actual route differs.
+  useEffect(() => {
+    if (loadState !== "found" || !selection?.bookingId) return
+
+    let cancelled = false
+    fetch(`/api/bookings/${selection.bookingId}/passengers`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return
+        const rows: StoredPassenger[] | undefined = data.passengers ?? data
+        if (Array.isArray(rows) && rows.length) {
+          console.log("[seats] passengers fetched from API:", rows)
+          setFetchedPassengers(rows)
+        }
+      })
+      .catch((err) => console.warn("[seats] passenger fetch failed, keeping sessionStorage/placeholder names:", err))
+
+    return () => {
+      cancelled = true
+    }
+  }, [loadState, selection])
 
   // ---- fetch seat maps ------------------------------------------------------
   useEffect(() => {
@@ -372,6 +411,7 @@ export default function SeatSelectionPage() {
   }, [loadState, selection])
 
   const passengers: StoredPassenger[] = useMemo(() => {
+    if (fetchedPassengers?.length) return fetchedPassengers
     if (selection?.savedPassengers?.length) return selection.savedPassengers
     const count = selection?.passengers || 1
     return Array.from({ length: count }, (_, i) => ({
@@ -380,7 +420,7 @@ export default function SeatSelectionPage() {
       last_name: `${i + 1}`,
       passenger_type: "adult",
     }))
-  }, [selection])
+  }, [selection, fetchedPassengers])
 
   const activeLeg = legs[activeLegIndex]
   const activePassenger = passengers[activePassengerIndex]
@@ -471,6 +511,137 @@ export default function SeatSelectionPage() {
       delete next[`${activeLegIndex}:${passengerId}`]
       return next
     })
+  }
+
+  // ---- smart-assign helpers ------------------------------------------
+  // Seat ids already claimed by picks on a given leg (so we never hand out
+  // a seat that's already assigned to one of this booking's own passengers).
+  function pickedSeatIdsForLeg(source: SelectionMap, legIndex: number): Set<string> {
+    const ids = new Set<string>()
+    Object.entries(source).forEach(([key, seatId]) => {
+      if (key.startsWith(`${legIndex}:`)) ids.add(seatId)
+    })
+    return ids
+  }
+
+  function passengersMissingSeat(source: SelectionMap, legIndex: number): StoredPassenger[] {
+    return passengers.filter((p) => !source[`${legIndex}:${p.id}`])
+  }
+
+  // Checks every leg that has a real seat map: does the chosen cabin have
+  // enough free seats for everyone who doesn't already have one? Returns
+  // null if fine, or a human-readable reason if not.
+  function checkCabinAvailability(cabin: CabinKey): string | null {
+    for (const [legIndex, leg] of legs.entries()) {
+      if (!leg.hasSeatMap) continue
+      const missing = passengersMissingSeat(picks, legIndex)
+      if (!missing.length) continue
+      const claimed = pickedSeatIdsForLeg(picks, legIndex)
+      const free = leg.seats.filter((s) => s.cabinClass === cabin && s.isAvailable && !claimed.has(s.id))
+      if (free.length < missing.length) {
+        const cabinLabel = CABIN_CLASSES.find((c) => c.key === cabin)?.label ?? cabin
+        return `Only ${free.length} ${cabinLabel} seat${free.length === 1 ? "" : "s"} left on the ${leg.label.toLowerCase()} flight, but ${missing.length} passenger${missing.length === 1 ? "" : "s"} still need${missing.length === 1 ? "s" : ""} one.`
+      }
+    }
+    return null
+  }
+
+  function shuffleArray<T>(arr: T[]): T[] {
+    const copy = [...arr]
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[copy[i], copy[j]] = [copy[j], copy[i]]
+    }
+    return copy
+  }
+
+  // Looks for a contiguous run of `count` available seats within the same
+  // aisle-group of the same row — a real "seated together" block, not just
+  // any N free seats in the cabin.
+  function findTogetherBlock(cabinSeats: ApiSeat[], claimed: Set<string>, count: number): ApiSeat[] | null {
+    const byRow = new Map<number, ApiSeat[]>()
+    cabinSeats.forEach((s) => {
+      const arr = byRow.get(s.row) || []
+      arr.push(s)
+      byRow.set(s.row, arr)
+    })
+    const rowEntries = shuffleArray(Array.from(byRow.entries()))
+    for (const [, rowSeats] of rowEntries) {
+      const sorted = [...rowSeats].sort((a, b) => a.col.localeCompare(b.col))
+      const groups = shuffleArray(groupByAisle(sorted))
+      for (const group of groups) {
+        for (let start = 0; start <= group.length - count; start++) {
+          const slice = group.slice(start, start + count)
+          if (slice.every((s) => s.isAvailable && !claimed.has(s.id))) return slice
+        }
+      }
+    }
+    return null
+  }
+
+  // Assigns seats in `skipCabin` to every passenger still missing one, on
+  // every leg that has a seat map. Existing manual picks are left alone.
+  function runAutoAssign(cabin: CabinKey, mode: "random" | "together") {
+    let anyPartial = false
+
+    setPicks((prev) => {
+      const next = { ...prev }
+
+      legs.forEach((leg, legIndex) => {
+        if (!leg.hasSeatMap) return
+        const missing = passengersMissingSeat(next, legIndex)
+        if (!missing.length) return
+
+        const claimed = pickedSeatIdsForLeg(next, legIndex)
+        const cabinSeats = leg.seats.filter((s) => s.cabinClass === cabin)
+
+        let assigned: ApiSeat[] = []
+
+        if (mode === "together") {
+          const block = findTogetherBlock(cabinSeats, claimed, missing.length)
+          if (block) assigned = block
+          else anyPartial = true
+        }
+
+        if (assigned.length < missing.length) {
+          const usedIds = new Set(assigned.map((s) => s.id))
+          const pool = shuffleArray(
+            cabinSeats.filter((s) => s.isAvailable && !claimed.has(s.id) && !usedIds.has(s.id))
+          )
+          assigned = [...assigned, ...pool.slice(0, missing.length - assigned.length)]
+        }
+
+        missing.forEach((p, i) => {
+          const seat = assigned[i]
+          if (seat) next[`${legIndex}:${p.id}`] = seat.id
+        })
+      })
+
+      return next
+    })
+
+    setActiveCabin(cabin)
+    setSkipPartialNote(
+      anyPartial ? "Couldn't fit everyone in one row on every leg — closest available seats were used instead." : null
+    )
+    setSkipModalOpen(false)
+  }
+
+  function openSkipModal() {
+    setSkipCabin(activeCabin)
+    setSkipErrorMessage(null)
+    setSkipStep("cabin")
+    setSkipModalOpen(true)
+  }
+
+  function handleSkipCheck() {
+    const reason = checkCabinAvailability(skipCabin)
+    if (reason) {
+      setSkipErrorMessage(reason)
+      setSkipStep("error")
+    } else {
+      setSkipStep("mode")
+    }
   }
 
   async function handleContinue() {
@@ -582,15 +753,14 @@ export default function SeatSelectionPage() {
   }
 
   const cabinMeta = CABIN_CLASSES.find((c) => c.key === activeCabin)
+  const activeLegFlight = legs[activeLegIndex]?.flight ?? selection.departFlight
+  const activeLegLabel = legs[activeLegIndex]?.label ?? (legs.length > 1 ? "Departure" : undefined)
 
   return (
     <PageShell selection={selection} router={router}>
-      {/* Flight info bar */}
-      <FlightInfoBar flight={selection.departFlight} />
-
       {/* Leg tabs (only when round-trip) */}
       {legs.length > 1 && (
-        <div className="flex gap-2 mt-5">
+        <div className="flex gap-2 mb-4">
           {legs.map((leg, i) => (
             <button
               key={leg.flightInstanceId}
@@ -606,6 +776,9 @@ export default function SeatSelectionPage() {
           ))}
         </div>
       )}
+
+      {/* Flight info bar — reflects whichever leg (departure/return) is active */}
+      <FlightInfoBar flight={activeLegFlight} legLabel={activeLegLabel} />
 
       <div className="grid grid-cols-12 gap-6 mt-6">
         {/* LEFT — cabin class rail */}
@@ -661,11 +834,197 @@ export default function SeatSelectionPage() {
             onSelectPassenger={setActivePassengerIndex}
             onClearSeat={clearSeat}
             onContinue={handleContinue}
-            onSkip={() => router.push("/checkout/addons")}
+            onSkip={openSkipModal}
           />
         </div>
       </div>
+
+      {skipPartialNote && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-2.5 px-4 py-3 rounded-xl bg-[#0D1A2C] border border-amber-400/30 shadow-[0_12px_40px_rgba(0,0,0,0.4)]">
+          <span className="text-amber-300 text-sm shrink-0">⚠</span>
+          <p className="text-xs text-slate-300">{skipPartialNote}</p>
+          <button
+            onClick={() => setSkipPartialNote(null)}
+            className="ml-2 text-slate-500 hover:text-slate-300 text-xs"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {skipModalOpen && (
+        <SkipSeatModal
+          step={skipStep}
+          cabin={skipCabin}
+          errorMessage={skipErrorMessage}
+          onCabinChange={setSkipCabin}
+          onCheck={handleSkipCheck}
+          onBackToCabin={() => setSkipStep("cabin")}
+          onChooseMode={(mode) => runAutoAssign(skipCabin, mode)}
+          onClose={() => setSkipModalOpen(false)}
+        />
+      )}
     </PageShell>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// SkipSeatModal — "skip seat selection" now walks through: pick a cabin →
+// we check real availability against every leg → pick random vs
+// seated-together → seats get written straight into `picks` and the modal
+// closes, no navigation away from this page.
+// ---------------------------------------------------------------------------
+
+function SkipSeatModal({
+  step,
+  cabin,
+  errorMessage,
+  onCabinChange,
+  onCheck,
+  onBackToCabin,
+  onChooseMode,
+  onClose,
+}: {
+  step: "cabin" | "mode" | "error"
+  cabin: CabinKey
+  errorMessage: string | null
+  onCabinChange: (c: CabinKey) => void
+  onCheck: () => void
+  onBackToCabin: () => void
+  onChooseMode: (mode: "random" | "together") => void
+  onClose: () => void
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-md bg-gradient-to-b from-[#0D1A2C] to-[#0A1424] border border-white/[0.1] rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.5)] overflow-hidden"
+      >
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 w-7 h-7 rounded-full flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/[0.06] transition-colors"
+          aria-label="Close"
+        >
+          ✕
+        </button>
+
+        {step === "cabin" && (
+          <div className="p-6">
+            <p className="text-lg font-semibold text-white mb-1">Skip seat selection</p>
+            <p className="text-sm text-slate-500 mb-5">
+              Pick a cabin and we'll assign seats for anyone who doesn't have one yet.
+            </p>
+
+            <div className="grid grid-cols-2 gap-2.5 mb-5">
+              {CABIN_CLASSES.map((c) => {
+                const isActive = cabin === c.key
+                return (
+                  <button
+                    key={c.key}
+                    onClick={() => onCabinChange(c.key)}
+                    className={`flex flex-col items-start gap-1 px-3.5 py-3 rounded-xl border text-left transition-all ${
+                      isActive
+                        ? "border-amber-400/70 bg-amber-400/10"
+                        : "border-white/[0.08] bg-white/[0.02] hover:border-white/20"
+                    }`}
+                  >
+                    <span className={`text-xs font-medium ${isActive ? "text-amber-200" : "text-slate-300"}`}>
+                      {c.label}
+                    </span>
+                    <span className={`text-[11px] ${isActive ? "text-amber-400/70" : "text-slate-600"}`}>
+                      from ₹{c.fromPrice.toLocaleString("en-IN")}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <button
+              onClick={onCheck}
+              className="w-full px-6 py-3 rounded-xl font-semibold bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 text-[#060B14] hover:brightness-105 transition-all"
+            >
+              Check availability
+            </button>
+          </div>
+        )}
+
+        {step === "error" && (
+          <div className="p-6">
+            <div className="w-11 h-11 rounded-full bg-red-400/10 border border-red-400/20 flex items-center justify-center mb-4">
+              <span className="text-red-300 text-lg">!</span>
+            </div>
+            <p className="text-base font-semibold text-white mb-1.5">Not enough seats there</p>
+            <p className="text-sm text-slate-400 mb-6">{errorMessage}</p>
+            <div className="flex gap-2.5">
+              <button
+                onClick={onBackToCabin}
+                className="flex-1 px-4 py-2.5 rounded-xl font-medium bg-white/[0.06] text-white hover:bg-white/[0.1] transition-colors"
+              >
+                Try another cabin
+              </button>
+              <button
+                onClick={onClose}
+                className="flex-1 px-4 py-2.5 rounded-xl font-medium border border-white/[0.1] text-slate-300 hover:bg-white/[0.04] transition-colors"
+              >
+                I'll pick manually
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === "mode" && (
+          <div className="p-6">
+            <p className="text-lg font-semibold text-white mb-1">How should we seat everyone?</p>
+            <p className="text-sm text-slate-500 mb-5">
+              {CABIN_CLASSES.find((c) => c.key === cabin)?.label} has enough open seats — pick how to assign them.
+            </p>
+
+            <div className="space-y-2.5">
+              <button
+                onClick={() => onChooseMode("together")}
+                className="w-full flex items-start gap-3 px-4 py-3.5 rounded-xl border border-white/[0.08] bg-white/[0.02] hover:border-amber-400/50 hover:bg-amber-400/[0.05] transition-all text-left group"
+              >
+                <span className="w-9 h-9 rounded-lg bg-amber-400/10 flex items-center justify-center text-amber-300 shrink-0 group-hover:bg-amber-400/20 transition-colors">
+                  👥
+                </span>
+                <span>
+                  <span className="block text-sm font-medium text-white">Seated together</span>
+                  <span className="block text-[12px] text-slate-500 mt-0.5">
+                    Keep the group in the same row where possible
+                  </span>
+                </span>
+              </button>
+
+              <button
+                onClick={() => onChooseMode("random")}
+                className="w-full flex items-start gap-3 px-4 py-3.5 rounded-xl border border-white/[0.08] bg-white/[0.02] hover:border-cyan-400/50 hover:bg-cyan-400/[0.05] transition-all text-left group"
+              >
+                <span className="w-9 h-9 rounded-lg bg-cyan-400/10 flex items-center justify-center text-cyan-300 shrink-0 group-hover:bg-cyan-400/20 transition-colors">
+                  🎲
+                </span>
+                <span>
+                  <span className="block text-sm font-medium text-white">Random seats</span>
+                  <span className="block text-[12px] text-slate-500 mt-0.5">
+                    Any available seat per passenger, fastest option
+                  </span>
+                </span>
+              </button>
+            </div>
+
+            <button
+              onClick={onBackToCabin}
+              className="w-full mt-4 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              ← Choose a different cabin
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -673,9 +1032,15 @@ export default function SeatSelectionPage() {
 // FlightInfoBar
 // ---------------------------------------------------------------------------
 
-function FlightInfoBar({ flight }: { flight: StoredFlight }) {
+function FlightInfoBar({ flight, legLabel }: { flight: StoredFlight; legLabel?: string }) {
   return (
-    <div className="flex flex-wrap items-center gap-4 bg-gradient-to-r from-white/[0.04] to-white/[0.02] border border-white/[0.08] rounded-2xl px-5 py-4 shadow-[0_8px_24px_rgba(0,0,0,0.15)]">
+    <div>
+      {legLabel && (
+        <p className="text-[10px] uppercase tracking-[0.14em] text-amber-300/80 font-medium mb-2 ml-1">
+          {legLabel}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-4 bg-gradient-to-r from-white/[0.04] to-white/[0.02] border border-white/[0.08] rounded-2xl px-5 py-4 shadow-[0_8px_24px_rgba(0,0,0,0.15)]">
       {/* Airline */}
       <div className="flex items-center gap-2.5 min-w-[140px]">
         <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center overflow-hidden shadow-sm ring-1 ring-black/5 shrink-0">
@@ -723,6 +1088,7 @@ function FlightInfoBar({ flight }: { flight: StoredFlight }) {
       <button className="ml-auto text-xs text-slate-400 hover:text-amber-300 transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] hover:border-amber-400/30 hover:bg-amber-400/[0.04]">
         Edit flight <span aria-hidden>✎</span>
       </button>
+      </div>
     </div>
   )
 }
@@ -1000,12 +1366,20 @@ function SeatMapCard({
 
       {/* Seat grid */}
       <div className="relative px-5 pb-6 overflow-x-auto">
+        {/* fuselage side rails — decorative, gives the grid an aircraft-body feel */}
+        <div className="pointer-events-none absolute top-0 bottom-6 left-1 w-3 rounded-full bg-gradient-to-b from-white/[0.05] via-white/[0.02] to-white/[0.05] border border-white/[0.06] hidden sm:block" />
+        <div className="pointer-events-none absolute top-0 bottom-6 right-1 w-3 rounded-full bg-gradient-to-b from-white/[0.05] via-white/[0.02] to-white/[0.05] border border-white/[0.06] hidden sm:block" />
+
         <div className="flex flex-col items-center gap-2.5" style={{ gap: Math.max(8, scaledPod * 0.14) }}>
-          {rows.map(([rowNum, rowSeats]) => {
+          {rows.map(([rowNum, rowSeats], rowIdx) => {
             const sorted = [...rowSeats].sort((a, b) => a.col.localeCompare(b.col))
             const groups = groupByAisle(sorted)
             return (
-              <div key={rowNum} className="flex items-center gap-8">
+              <div
+                key={rowNum}
+                className={`flex items-center gap-8 rounded-xl ${rowIdx % 2 === 0 ? "bg-white/[0.012]" : ""}`}
+                style={{ paddingBlock: Math.max(2, scaledPod * 0.04) }}
+              >
                 <span className="w-5 text-right text-[11px] text-slate-500 tabular-nums shrink-0">{rowNum}</span>
                 {groups.map((group, gi) => (
                   <div key={gi} className="flex items-center" style={{ gap: Math.max(6, scaledPod * 0.12) }}>
@@ -1020,6 +1394,7 @@ function SeatMapCard({
                           key={seat.id}
                           seat={seat}
                           size={scaledPod}
+                          cabin={activeCabin}
                           isMe={isMe}
                           isOtherPax={isOtherPax}
                           color={color}
@@ -1087,6 +1462,7 @@ function SeatMapCard({
 function GoldSeatPod({
   seat,
   size,
+  cabin,
   isMe,
   isOtherPax,
   color,
@@ -1094,15 +1470,16 @@ function GoldSeatPod({
 }: {
   seat: ApiSeat
   size: number
+  cabin: CabinKey
   isMe: boolean
   isOtherPax: boolean
   color: (typeof PAX_COLORS)[number] | null
   onClick: () => void
 }) {
   const taken = !seat.isAvailable
-  const isIllustrated = size >= 56 // business / first — economy stays a flat chip
 
-  if (isIllustrated) {
+  // First class — your real seat-pod artwork.
+  if (cabin === "first") {
     return (
       <IllustratedSeatPod
         seat={seat}
@@ -1116,7 +1493,27 @@ function GoldSeatPod({
     )
   }
 
+  // Business class — coded placeholder pod until real artwork is dropped in
+  // (see BusinessSeatPod below — same overlay logic as IllustratedSeatPod,
+  // just built from CSS/SVG instead of a PNG).
+  if (cabin === "business") {
+    return (
+      <BusinessSeatPod
+        seat={seat}
+        size={size}
+        taken={taken}
+        isMe={isMe}
+        isOtherPax={isOtherPax}
+        color={color}
+        onClick={onClick}
+      />
+    )
+  }
+
+  // Economy / Premium Economy — flat chip, enriched with window/legroom cues
+  // and a proper hover tooltip instead of a bare browser title.
   const iconSize = Math.max(10, Math.round(size * 0.32))
+  const isExtraLegroom = seat.seatType === "extra_legroom"
 
   let fillClass = "bg-[#171029]/70"
   let borderClass = "border-amber-400/25"
@@ -1132,18 +1529,35 @@ function GoldSeatPod({
   } else if (taken) {
     fillClass = "bg-white/[0.03]"
     borderClass = "border-white/[0.08]"
+  } else if (isExtraLegroom) {
+    fillClass = "bg-amber-400/[0.07]"
+    borderClass = "border-amber-400/40"
   }
 
   return (
     <button
       onClick={onClick}
       disabled={taken}
-      title={`${seat.seatNumber}${seat.price > 0 ? ` · +₹${seat.price.toLocaleString("en-IN")}` : ""}`}
+      title={`${seat.seatNumber}${isExtraLegroom ? " · Extra legroom" : ""}${seat.price > 0 ? ` · +₹${seat.price.toLocaleString("en-IN")}` : ""}`}
       style={{ width: size, height: size, ...glowStyle }}
       className={`seat-btn relative rounded-[28%] border-2 flex items-center justify-center transition-all duration-150 group shrink-0 ${fillClass} ${borderClass} ${
         taken ? "cursor-not-allowed" : "cursor-pointer hover:-translate-y-0.5 hover:border-amber-300/60"
       } ${isMe ? "seat-pop" : ""}`}
     >
+      {/* window-seat cue: a faint sky-blue arc on the outward edge */}
+      {seat.isWindow && !taken && !isMe && !isOtherPax && (
+        <span
+          className="absolute top-1 left-1 w-1.5 h-1.5 rounded-full bg-sky-300/50"
+          aria-hidden
+        />
+      )}
+      {/* extra-legroom cue: small chevrons */}
+      {isExtraLegroom && !taken && !isMe && !isOtherPax && (
+        <span className="absolute bottom-0.5 text-amber-400/60" style={{ fontSize: size * 0.16 }} aria-hidden>
+          ⌄⌄
+        </span>
+      )}
+
       {taken ? (
         <LockIcon size={iconSize} className="text-amber-500/80" filled />
       ) : isMe ? (
@@ -1155,8 +1569,106 @@ function GoldSeatPod({
           {seat.col}
         </span>
       ) : (
-        <span className="text-slate-500 font-light" style={{ fontSize: Math.max(11, size * 0.3) }}>
+        <span className={`font-light ${isExtraLegroom ? "text-amber-300/80" : "text-slate-500"}`} style={{ fontSize: Math.max(11, size * 0.3) }}>
           +
+        </span>
+      )}
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// BusinessSeatPod — coded stand-in for Business class until matching
+// artwork exists (swap this for a real <img>, same pattern as
+// IllustratedSeatPod, whenever that art is ready). Deep violet shell with a
+// recliner silhouette, matching the app's business-class accent colour.
+// ---------------------------------------------------------------------------
+
+function BusinessSeatPod({
+  seat,
+  size,
+  taken,
+  isMe,
+  isOtherPax,
+  color,
+  onClick,
+}: {
+  seat: ApiSeat
+  size: number
+  taken: boolean
+  isMe: boolean
+  isOtherPax: boolean
+  color: (typeof PAX_COLORS)[number] | null
+  onClick: () => void
+}) {
+  // Artwork is 1104x1110 (trimmed to its bounding box after background
+  // removal) — keep that aspect ratio so the pod isn't squashed.
+  const ART_RATIO = 1110 / 1104
+  const height = size * ART_RATIO
+
+  // Badge sits over the console/table surface on the left of the seat —
+  // the largest clear flat area in the artwork. Tweak these four numbers if
+  // you swap in different art with that surface in a different spot.
+  const badge = { left: "13%", top: "43%", width: "27%", height: "27%" }
+
+  const ringColor = isMe ? (color ? color.dot : "bg-violet-400") : isOtherPax && color ? color.dot : null
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={taken}
+      title={`${seat.seatNumber}${seat.price > 0 ? ` · +₹${seat.price.toLocaleString("en-IN")}` : ""}`}
+      style={{ width: size, height }}
+      className={`seat-btn group relative shrink-0 transition-all duration-200 ${
+        taken ? "cursor-not-allowed" : "cursor-pointer hover:-translate-y-0.5"
+      } ${isMe ? "seat-pop" : ""}`}
+    >
+      {ringColor && (
+        <span className={`absolute inset-[6%] rounded-[24%] ${ringColor} opacity-25 blur-lg`} aria-hidden />
+      )}
+
+      <img
+        src="/seats/business-class-seat-pod.png"
+        alt=""
+        draggable={false}
+        className={`relative w-full h-full object-contain select-none transition-all duration-200 ${
+          !taken ? "group-hover:brightness-110" : ""
+        }`}
+        style={{ filter: taken ? "grayscale(65%) brightness(0.55)" : undefined }}
+      />
+
+      <div className="absolute flex items-center justify-center" style={badge}>
+        {taken ? (
+          <span className="w-[62%] h-[62%] rounded-full bg-[#3a2410]/90 border border-amber-500/70 flex items-center justify-center">
+            <LockIcon size={Math.max(11, size * 0.14)} className="text-amber-400" filled />
+          </span>
+        ) : isMe ? (
+          <span
+            className={`w-[62%] h-[62%] rounded-full ${color ? color.dot : "bg-violet-400"} flex items-center justify-center font-bold text-[#060B14]`}
+            style={{ fontSize: Math.max(11, size * 0.14) }}
+          >
+            ✓
+          </span>
+        ) : isOtherPax && color ? (
+          <span
+            className={`w-[62%] h-[62%] rounded-full ${color.bg.replace("/10", "/70")} border ${color.ring} flex items-center justify-center font-bold ${color.text}`}
+            style={{ fontSize: Math.max(11, size * 0.14) }}
+          >
+            {seat.col}
+          </span>
+        ) : (
+          <span className="text-slate-300 font-light group-hover:text-violet-300 transition-colors" style={{ fontSize: Math.max(14, size * 0.2) }}>
+            +
+          </span>
+        )}
+      </div>
+
+      {!taken && !isMe && !isOtherPax && seat.price > 0 && (
+        <span
+          className="absolute text-[9px] leading-none px-1.5 py-0.5 rounded bg-[#060B14]/90 border border-violet-400/30 text-violet-300/80 whitespace-nowrap"
+          style={{ top: size * 0.02, right: -4 }}
+        >
+          +₹{seat.price.toLocaleString("en-IN")}
         </span>
       )}
     </button>
