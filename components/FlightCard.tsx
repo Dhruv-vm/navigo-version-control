@@ -23,11 +23,13 @@ const airlineLogos: Record<string, string> = {
   "Qatar Airways": "/airlines/qatar.png",
 };
 
+// Premium jewel-tone tag treatment — each tag reads as a small emblem
+// rather than a flat sticker.
 const tagStyles: Record<string, string> = {
-  best: "from-yellow-400 to-amber-500 text-black",
-  cheapest: "from-emerald-400 to-green-500 text-black",
-  fastest: "from-cyan-400 to-blue-500 text-black",
-  value: "from-fuchsia-400 to-purple-500 text-black",
+  best: "from-amber-300 via-yellow-400 to-amber-500 text-black shadow-[0_0_16px_rgba(251,191,36,0.45)]",
+  cheapest: "from-emerald-300 via-emerald-400 to-teal-500 text-black shadow-[0_0_16px_rgba(52,211,153,0.4)]",
+  fastest: "from-sky-300 via-cyan-400 to-blue-500 text-black shadow-[0_0_16px_rgba(56,189,248,0.4)]",
+  value: "from-fuchsia-300 via-purple-400 to-violet-500 text-black shadow-[0_0_16px_rgba(192,132,252,0.4)]",
 };
 
 // ✅ FIXED — DB stores departure_time / arrival_time as plain "HH:MM:SS"
@@ -84,71 +86,80 @@ export default function FlightCard({
 
   const tagKey = flight.tag?.toLowerCase().replace(/\s+/g, "");
   const tagGradient =
-    (tagKey && tagStyles[tagKey]) || "from-blue-400 to-cyan-400 text-black";
+    (tagKey && tagStyles[tagKey]) || "from-blue-300 via-cyan-400 to-blue-400 text-black";
 
   return (
     <div
       onClick={onSelect}
       className={`
         relative overflow-hidden
-        bg-gradient-to-br from-[#0c1525] via-[#0b1220] to-[#0a1424]
-        border rounded-2xl px-6 py-5
+        bg-[radial-gradient(140%_140%_at_0%_0%,#111a2e_0%,#0b1220_45%,#070b16_100%)]
+        border rounded-[28px] px-7 py-6
         transition-all duration-300 ease-out
         cursor-pointer group
+        backdrop-blur-sm
 
         ${
           isSelected
-            ? "border-blue-400 ring-2 ring-blue-400/50 scale-[1.015] shadow-[0_0_40px_rgba(59,130,246,0.4)]"
-            : "border-white/10 shadow-[0_0_20px_rgba(0,0,0,0.25)] hover:border-blue-400/50 hover:-translate-y-[3px] hover:shadow-[0_8px_30px_rgba(59,130,246,0.15)]"
+            ? "border-amber-300/60 ring-1 ring-amber-300/40 scale-[1.01] shadow-[0_0_50px_rgba(251,191,36,0.18)]"
+            : "border-white/[0.07] shadow-[0_10px_40px_rgba(0,0,0,0.35)] hover:border-amber-300/30 hover:-translate-y-[3px] hover:shadow-[0_16px_50px_rgba(0,0,0,0.45)]"
         }
       `}
     >
+      {/* hairline top accent — the card's "trim" */}
+      <div
+        className={`absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent ${
+          isSelected ? "via-amber-300/80" : "via-white/20 group-hover:via-amber-300/50"
+        } to-transparent transition-colors duration-300`}
+      />
+
       {/* soft ambient glow on hover */}
-      <div className="pointer-events-none absolute -top-20 -right-20 w-56 h-56 bg-blue-500/0 group-hover:bg-blue-500/10 blur-3xl rounded-full transition-all duration-500" />
+      <div className="pointer-events-none absolute -top-24 -right-24 w-64 h-64 bg-amber-400/0 group-hover:bg-amber-400/[0.06] blur-3xl rounded-full transition-all duration-500" />
+      <div className="pointer-events-none absolute -bottom-24 -left-24 w-64 h-64 bg-cyan-400/0 group-hover:bg-cyan-400/[0.05] blur-3xl rounded-full transition-all duration-500" />
 
       {/* SELECTED CHECK */}
       {isSelected && (
-        <div className="absolute top-0 right-0 bg-blue-500 text-white text-[11px] font-semibold px-3 py-1 rounded-bl-xl rounded-tr-2xl flex items-center gap-1">
-          ✓ Selected
+        <div className="absolute top-0 right-6 bg-gradient-to-r from-amber-300 to-amber-500 text-black text-[10px] font-bold tracking-wide px-3 py-1 rounded-b-lg flex items-center gap-1 shadow-[0_4px_12px_rgba(251,191,36,0.35)]">
+          ✓ SELECTED
         </div>
       )}
 
       {/* TOP ROW */}
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex justify-between items-center mb-5">
         <div className="flex items-center gap-2">
-          <span className="text-xs px-3 py-1 bg-white/10 rounded-md text-gray-300 font-medium">
+          <span className="text-[11px] tracking-wide px-3 py-1 bg-white/[0.06] border border-white/[0.06] rounded-full text-gray-300 font-medium">
             {flight.aircraft}
           </span>
 
           {flight.tag && (
             <span
-              className={`text-[10px] uppercase tracking-wide font-bold px-2.5 py-1 rounded-md bg-gradient-to-r ${tagGradient}`}
+              className={`text-[10px] uppercase tracking-widest font-bold px-2.5 py-1 rounded-full bg-gradient-to-r ${tagGradient}`}
             >
               {flight.tag}
             </span>
           )}
         </div>
 
-        <span className="text-[11px] text-blue-400 cursor-pointer hover:text-cyan-300 hover:underline transition-colors">
-          Details
+        <span className="text-[11px] text-amber-300/80 cursor-pointer hover:text-amber-200 tracking-wide font-medium transition-colors">
+          Details →
         </span>
       </div>
 
       {/* MAIN GRID */}
-      <div className="grid grid-cols-[1.5fr_3fr_1.5fr] items-center gap-6">
+      <div className="grid grid-cols-[1.5fr_3fr_auto_1.4fr] items-center gap-6">
 
         {/* LEFT */}
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-white flex items-center justify-center shadow-md ring-1 ring-black/5 overflow-hidden">
+          <div className="w-12 h-12 rounded-2xl bg-white/95 flex items-center justify-center shadow-[0_4px_14px_rgba(0,0,0,0.3)] ring-1 ring-white/10 overflow-hidden">
             <img src={logo} className="w-8 h-8 object-contain" />
           </div>
 
           <div>
-            <p className="font-semibold text-lg whitespace-nowrap">
+            <p className="font-semibold text-lg tracking-tight whitespace-nowrap text-white">
               {flight.airline}
             </p>
-            <p className="text-xs text-gray-400">
-              {flight.origin} → {flight.destination}
+            <p className="text-xs text-gray-400 tracking-wide">
+              {flight.origin} <span className="text-amber-300/70">→</span> {flight.destination}
             </p>
           </div>
         </div>
@@ -158,50 +169,59 @@ export default function FlightCard({
 
           {/* DEPART */}
           <div className="text-right">
-            <p className="text-lg font-semibold tabular-nums">
+            <p className="text-xl font-semibold tabular-nums text-white">
               {formatTime(flight.departure_time)}
             </p>
-            <p className="text-xs text-gray-400">{flight.origin}</p>
+            <p className="text-[11px] text-gray-500 tracking-wide uppercase mt-0.5">{flight.origin}</p>
           </div>
 
           {/* TIMELINE */}
           <div className="flex flex-col items-center flex-1 mx-4">
 
-            <p className="text-xs text-gray-300 mb-1 font-medium">
+            <p className="text-[11px] text-gray-400 mb-1.5 font-medium tracking-wide">
               {flight.duration || "--"}
             </p>
 
-            <div className="relative w-full h-[3px] bg-white/10 rounded-full">
-              <div className="absolute left-0 top-0 h-[3px] w-full bg-gradient-to-r from-blue-400 via-cyan-400 to-blue-400 rounded-full"></div>
+            <div className="relative w-full h-px bg-white/10 rounded-full">
+              <div className="absolute left-0 top-0 h-px w-full bg-gradient-to-r from-amber-300/70 via-cyan-300/70 to-amber-300/70 rounded-full"></div>
 
-              <div className="absolute -top-[5px] left-0 w-2.5 h-2.5 bg-white rounded-full shadow-[0_0_8px_rgba(255,255,255,0.6)]"></div>
-              <div className="absolute -top-[5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-white/70 rounded-full"></div>
-              <div className="absolute -top-[5px] right-0 w-2.5 h-2.5 bg-white rounded-full shadow-[0_0_8px_rgba(255,255,255,0.6)]"></div>
+              <div className="absolute -top-[3.5px] left-0 w-2 h-2 bg-amber-300 rounded-full shadow-[0_0_8px_rgba(252,211,77,0.7)]"></div>
+              <div className="absolute -top-[3px] left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-white/50 rounded-full"></div>
+              <div className="absolute -top-[3.5px] right-0 w-2 h-2 bg-amber-300 rounded-full shadow-[0_0_8px_rgba(252,211,77,0.7)]"></div>
             </div>
 
-            <p className="text-xs text-gray-400 mt-1.5">
+            <p className="text-[11px] text-gray-500 mt-2 tracking-wide">
               {getStopsText(flight.stops)}
             </p>
           </div>
 
           {/* ARRIVAL */}
           <div>
-            <p className="text-lg font-semibold tabular-nums">
+            <p className="text-xl font-semibold tabular-nums text-white">
               {formatTime(flight.arrival_time)}
             </p>
-            <p className="text-xs text-gray-400">{flight.destination}</p>
+            <p className="text-[11px] text-gray-500 tracking-wide uppercase mt-0.5">{flight.destination}</p>
           </div>
 
         </div>
 
-        {/* RIGHT PRICE */}
-        <div className="flex flex-col items-end">
+        {/* TICKET PERFORATION — signature element separating the fare */}
+        <div className="relative self-stretch w-px hidden md:block">
+          <div className="absolute inset-y-1 left-0 border-l border-dashed border-white/15" />
+          <div className="absolute -top-[7px] -left-[6px] w-3 h-3 rounded-full bg-[#070b16] border border-white/10" />
+          <div className="absolute -bottom-[7px] -left-[6px] w-3 h-3 rounded-full bg-[#070b16] border border-white/10" />
+        </div>
 
-          <p className="text-3xl font-bold text-yellow-400 drop-shadow-[0_0_10px_rgba(255,215,0,0.45)] tabular-nums">
+        {/* RIGHT PRICE */}
+        <div className="flex flex-col items-end pl-2">
+
+          <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">Total fare</p>
+
+          <p className="text-[2rem] leading-none font-bold text-transparent bg-clip-text bg-gradient-to-b from-amber-200 to-amber-400 drop-shadow-[0_0_18px_rgba(251,191,36,0.25)] tabular-nums">
             ₹{totalPrice.toLocaleString()}
           </p>
 
-          <p className="text-xs text-gray-400 whitespace-nowrap">
+          <p className="text-xs text-gray-500 whitespace-nowrap mt-1">
             ₹{safePrice.toLocaleString()} × {pax} passenger{pax > 1 ? "s" : ""}
           </p>
 
@@ -210,24 +230,24 @@ export default function FlightCard({
               e.stopPropagation();
               onSelect?.();
             }}
-            className={`mt-3 px-5 py-2 rounded-lg font-semibold transition-all
+            className={`mt-4 px-6 py-2.5 rounded-xl font-semibold text-sm tracking-wide transition-all duration-200
             ${isSelected
-              ? "bg-white/10 text-blue-300 border border-blue-400/50"
-              : "bg-gradient-to-r from-blue-500 via-cyan-400 to-yellow-400 text-black hover:scale-105 hover:shadow-[0_0_20px_rgba(56,189,248,0.6)]"
+              ? "bg-white/[0.06] text-amber-300 border border-amber-300/40"
+              : "bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 text-black hover:scale-[1.03] hover:shadow-[0_8px_24px_rgba(251,191,36,0.35)]"
             }`}
           >
-            {isSelected ? "Selected ✓" : "Select →"}
+            {isSelected ? "Selected ✓" : "Select flight"}
           </button>
         </div>
 
       </div>
 
       {/* ICON ROW */}
-      <div className="flex items-center gap-4 mt-4 pt-3 border-t border-white/5 text-gray-400 text-xs">
-        <span className="flex items-center gap-1">📶 Wifi</span>
-        <span className="flex items-center gap-1">🧳 Baggage</span>
-        <span className="flex items-center gap-1">💺 Seat</span>
-        <span className="flex items-center gap-1">🍽️ Meal</span>
+      <div className="flex items-center gap-3 mt-5 pt-4 border-t border-white/[0.06] text-gray-500 text-[11px] tracking-wide">
+        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.03]">📶 Wifi</span>
+        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.03]">🧳 Baggage</span>
+        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.03]">💺 Seat</span>
+        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.03]">🍽️ Meal</span>
       </div>
     </div>
   );

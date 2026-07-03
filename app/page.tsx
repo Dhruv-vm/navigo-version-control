@@ -29,8 +29,6 @@ const INSIGHTS = [
   { icon: "🌙", title: "Fly mid-week",    body: "Tuesday & Wednesday flights average 18% cheaper." },
 ]
 
-const PRICE_BAR_COLORS = ["#22D3EE", "#6366F1", "#818CF8", "#F59E0B"]
-
 export default function Home() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
@@ -54,7 +52,10 @@ export default function Home() {
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-[#020617] text-white">
-        <div className="animate-pulse text-lg">Loading Navigo...</div>
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-10 w-10 rounded-full border-2 border-cyan-400/30 border-t-cyan-400 animate-spin" />
+          <div className="text-sm text-slate-400 tracking-wide">Loading Navigo...</div>
+        </div>
       </div>
     )
   }
@@ -68,18 +69,51 @@ export default function Home() {
           --cyan:   #22D3EE;
           --gold:   #F59E0B;
           --navy:   #020617;
-          --card:   rgba(255,255,255,0.04);
-          --border: rgba(255,255,255,0.08);
+          --card:   rgba(255,255,255,0.045);
+          --card-hover: rgba(255,255,255,0.065);
+          --border: rgba(255,255,255,0.09);
+          --border-hover: rgba(255,255,255,0.16);
           --text:   #F0F4FF;
           --muted:  #64748B;
           --soft:   #94A3B8;
+        }
+
+        @keyframes hpFadeUp {
+          from { opacity: 0; transform: translateY(16px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes hpFloatGlow {
+          0%, 100% { transform: translate(0, 0); }
+          50% { transform: translate(-8px, 8px); }
+        }
+
+        .hp-hero-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 18px;
+          border-radius: 999px;
+          font-size: 13px;
+          font-weight: 600;
+          color: #bae6fd;
+          background: linear-gradient(135deg, rgba(56,189,248,0.14), rgba(245,158,11,0.10));
+          border: 1px solid rgba(56,189,248,0.35);
+          box-shadow: 0 4px 20px -6px rgba(56,189,248,0.35);
+          cursor: pointer;
+          transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+          animation: hpFadeUp 0.6s ease-out 0.15s both;
+        }
+        .hp-hero-badge:hover {
+          border-color: rgba(56,189,248,0.6);
+          box-shadow: 0 6px 26px -6px rgba(56,189,248,0.5);
+          transform: translateY(-1px);
         }
 
         /* ── Section grid ── */
         .hp-sections {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
-          gap: 20px;
+          gap: 22px;
         }
         @media (max-width: 900px) {
           .hp-sections { grid-template-columns: 1fr; }
@@ -89,25 +123,33 @@ export default function Home() {
         .hp-card {
           background: var(--card);
           border: 1px solid var(--border);
-          border-radius: 20px;
-          padding: 24px;
-          backdrop-filter: blur(16px);
+          border-radius: 22px;
+          padding: 26px;
+          backdrop-filter: blur(20px);
           position: relative;
           overflow: hidden;
-          transition: border-color 0.25s, box-shadow 0.25s;
+          transition: border-color 0.3s, box-shadow 0.3s, background 0.3s, transform 0.3s;
+          animation: hpFadeUp 0.6s ease-out both;
+          box-shadow: 0 4px 24px -8px rgba(0,0,0,0.4);
         }
+        .hp-card:nth-child(1) { animation-delay: 0.05s; }
+        .hp-card:nth-child(2) { animation-delay: 0.12s; }
+        .hp-card:nth-child(3) { animation-delay: 0.19s; }
         .hp-card:hover {
-          border-color: rgba(99,102,241,0.3);
-          box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+          border-color: var(--border-hover);
+          background: var(--card-hover);
+          box-shadow: 0 16px 48px -12px rgba(0,0,0,0.55);
+          transform: translateY(-3px);
         }
         .hp-card-glow {
           position: absolute;
-          width: 180px; height: 180px;
+          width: 200px; height: 200px;
           border-radius: 50%;
-          filter: blur(60px);
-          opacity: 0.12;
+          filter: blur(70px);
+          opacity: 0.16;
           pointer-events: none;
-          top: -40px; right: -40px;
+          top: -50px; right: -50px;
+          animation: hpFloatGlow 8s ease-in-out infinite;
         }
 
         /* ── Card headers ── */
@@ -115,20 +157,29 @@ export default function Home() {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          margin-bottom: 18px;
+          margin-bottom: 20px;
         }
         .hp-card-title {
-          font-size: 15px;
+          font-size: 16px;
           font-weight: 700;
           color: var(--text);
-          letter-spacing: 0.01em;
+          letter-spacing: 0.005em;
         }
         .hp-card-eyebrow {
-          font-size: 10px;
-          letter-spacing: 0.12em;
+          font-size: 10.5px;
+          font-weight: 600;
+          letter-spacing: 0.14em;
           text-transform: uppercase;
           color: var(--muted);
           margin-bottom: 6px;
+        }
+        .hp-card-icon {
+          width: 38px; height: 38px;
+          border-radius: 12px;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 17px;
+          background: rgba(255,255,255,0.05);
+          border: 1px solid var(--border);
         }
 
         /* ── Route rows ── */
@@ -136,29 +187,40 @@ export default function Home() {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 10px 12px;
-          border-radius: 12px;
+          padding: 12px 14px;
+          border-radius: 14px;
           margin-bottom: 8px;
-          background: rgba(255,255,255,0.03);
+          background: rgba(255,255,255,0.025);
           border: 1px solid transparent;
           cursor: pointer;
-          transition: background 0.18s, border-color 0.18s;
+          transition: background 0.2s, border-color 0.2s, transform 0.2s;
         }
         .hp-route-row:hover {
-          background: rgba(99,102,241,0.1);
-          border-color: rgba(99,102,241,0.25);
+          background: rgba(99,102,241,0.12);
+          border-color: rgba(99,102,241,0.3);
+          transform: translateX(2px);
         }
-        .hp-route-label { font-size: 13px; color: var(--text); font-weight: 500; }
-        .hp-route-price { font-size: 14px; font-weight: 700; color: var(--cyan); }
+        .hp-route-left { display: flex; align-items: center; gap: 10px; }
+        .hp-route-plane {
+          width: 26px; height: 26px;
+          border-radius: 8px;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 12px;
+          background: linear-gradient(135deg, rgba(99,102,241,0.25), rgba(34,211,238,0.15));
+          flex-shrink: 0;
+        }
+        .hp-route-label { font-size: 13.5px; color: var(--text); font-weight: 500; }
+        .hp-route-price { font-size: 14.5px; font-weight: 700; color: var(--cyan); }
         .hp-route-tag {
-          font-size: 10px;
-          padding: 2px 8px;
+          font-size: 9.5px;
+          padding: 3px 9px;
           border-radius: 20px;
           background: rgba(99,102,241,0.2);
           color: #a5b4fc;
-          font-weight: 600;
-          letter-spacing: 0.04em;
-          margin-left: 8px;
+          font-weight: 700;
+          letter-spacing: 0.05em;
+          margin-left: 4px;
+          text-transform: uppercase;
         }
         .hp-route-tag.drop { background: rgba(34,211,238,0.15); color: var(--cyan); }
 
@@ -166,9 +228,10 @@ export default function Home() {
         .hp-bars {
           display: flex;
           align-items: flex-end;
-          gap: 6px;
-          height: 80px;
-          margin-bottom: 10px;
+          gap: 7px;
+          height: 86px;
+          margin-bottom: 12px;
+          padding-top: 4px;
         }
         .hp-bar-wrap {
           flex: 1;
@@ -181,11 +244,11 @@ export default function Home() {
         }
         .hp-bar {
           width: 100%;
-          border-radius: 5px 5px 2px 2px;
-          transition: opacity 0.2s;
+          border-radius: 6px 6px 3px 3px;
+          transition: opacity 0.2s, filter 0.2s;
           min-height: 6px;
         }
-        .hp-bar-wrap:hover .hp-bar { opacity: 0.75; }
+        .hp-bar-wrap:hover .hp-bar { opacity: 1 !important; filter: brightness(1.15); }
         .hp-bar-date {
           font-size: 9px;
           color: var(--muted);
@@ -200,13 +263,17 @@ export default function Home() {
           font-weight: 600;
         }
         .hp-bar-best {
-          font-size: 10px;
+          font-size: 11px;
           color: var(--cyan);
           font-weight: 700;
-          margin-top: 6px;
+          margin-top: 8px;
+          padding: 8px 12px;
+          border-radius: 10px;
+          background: rgba(34,211,238,0.08);
+          border: 1px solid rgba(34,211,238,0.2);
           display: flex;
           align-items: center;
-          gap: 4px;
+          gap: 6px;
         }
 
         /* ── Insight items ── */
@@ -214,40 +281,49 @@ export default function Home() {
           display: flex;
           gap: 14px;
           align-items: flex-start;
-          padding: 12px 0;
+          padding: 13px 0;
           border-bottom: 1px solid var(--border);
         }
         .hp-insight-row:last-child { border-bottom: none; padding-bottom: 0; }
         .hp-insight-icon {
-          width: 36px; height: 36px;
-          border-radius: 10px;
-          background: rgba(99,102,241,0.15);
+          width: 38px; height: 38px;
+          border-radius: 11px;
+          background: linear-gradient(135deg, rgba(99,102,241,0.22), rgba(245,158,11,0.12));
+          border: 1px solid rgba(255,255,255,0.08);
           display: flex; align-items: center; justify-content: center;
           font-size: 18px;
           flex-shrink: 0;
         }
         .hp-insight-title {
-          font-size: 13px; font-weight: 600; color: var(--text);
+          font-size: 13.5px; font-weight: 600; color: var(--text);
           margin-bottom: 3px;
         }
-        .hp-insight-body { font-size: 12px; color: var(--soft); line-height: 1.5; }
+        .hp-insight-body { font-size: 12px; color: var(--soft); line-height: 1.55; }
 
         /* ── Section label ── */
         .hp-section-label {
-          font-size: 11px;
-          letter-spacing: 0.1em;
+          font-size: 11.5px;
+          font-weight: 600;
+          letter-spacing: 0.12em;
           text-transform: uppercase;
           color: var(--muted);
-          margin-bottom: 20px;
+          margin-bottom: 22px;
           display: flex;
           align-items: center;
-          gap: 10px;
+          gap: 12px;
+        }
+        .hp-section-label::before {
+          content: "";
+          width: 6px; height: 6px;
+          border-radius: 50%;
+          background: var(--cyan);
+          box-shadow: 0 0 8px rgba(34,211,238,0.8);
         }
         .hp-section-label::after {
           content: "";
           flex: 1;
           height: 1px;
-          background: var(--border);
+          background: linear-gradient(90deg, var(--border), transparent);
         }
 
         /* ── AI badge on insight card ── */
@@ -255,14 +331,34 @@ export default function Home() {
           display: inline-flex;
           align-items: center;
           gap: 5px;
-          font-size: 10px;
-          padding: 3px 10px;
+          font-size: 10.5px;
+          padding: 5px 12px;
           border-radius: 20px;
-          background: linear-gradient(135deg, rgba(99,102,241,0.25), rgba(34,211,238,0.15));
-          border: 1px solid rgba(99,102,241,0.3);
-          color: #a5b4fc;
-          font-weight: 600;
+          background: linear-gradient(135deg, rgba(99,102,241,0.28), rgba(34,211,238,0.18));
+          border: 1px solid rgba(99,102,241,0.35);
+          color: #c7d2fe;
+          font-weight: 700;
           letter-spacing: 0.05em;
+        }
+
+        .hp-nav-btn {
+          margin-top: 20px;
+          width: 100%;
+          padding: 12px;
+          border-radius: 14px;
+          background: linear-gradient(135deg, rgba(99,102,241,0.22), rgba(34,211,238,0.12));
+          border: 1px solid rgba(99,102,241,0.35);
+          color: #c7d2fe;
+          font-size: 13px;
+          font-weight: 700;
+          cursor: pointer;
+          letter-spacing: 0.03em;
+          transition: background 0.25s, border-color 0.25s, transform 0.2s;
+        }
+        .hp-nav-btn:hover {
+          background: linear-gradient(135deg, rgba(99,102,241,0.32), rgba(34,211,238,0.2));
+          border-color: rgba(99,102,241,0.5);
+          transform: translateY(-1px);
         }
       `}</style>
 
@@ -279,30 +375,36 @@ export default function Home() {
         <div className="relative z-10">
           <Navbar />
 
-          {/* ── HERO (unchanged) ── */}
+          {/* ── HERO ── */}
           <div className="max-w-7xl mx-auto px-10 pt-24 pb-10">
-            <h1 className="text-6xl font-bold leading-tight max-w-2xl">
+            <h1
+              className="text-6xl font-bold leading-[1.05] max-w-2xl tracking-tight"
+              style={{ animation: "hpFadeUp 0.7s ease-out both" }}
+            >
               Where will your{" "}
               <span className="bg-gradient-to-r from-blue-400 via-cyan-300 to-yellow-400 text-transparent bg-clip-text">
                 journey take you?
               </span>
             </h1>
-            <p className="mt-5 text-gray-400 text-lg">
+            <p
+              className="mt-5 text-gray-400 text-lg max-w-xl"
+              style={{ animation: "hpFadeUp 0.7s ease-out 0.08s both" }}
+            >
               Smart booking. Dynamic pricing. Personalized for you.
             </p>
-            <button className="mt-6 px-6 py-2 rounded-full border border-blue-400 text-blue-300 hover:bg-blue-500/10 transition">
+            <div className="hp-hero-badge mt-7">
               ✨ Save more with AI-powered prices
-            </button>
+            </div>
           </div>
 
           {/* ── SEARCH BOX (unchanged) ── */}
-          <div className="max-w-7xl mx-auto px-10 pb-12">
+          <div className="max-w-7xl mx-auto px-10 pb-14">
             <SearchBox />
           </div>
 
           {/* ── DIVIDER LABEL ── */}
-          <div className="max-w-7xl mx-auto px-10 mb-4">
-            <div className="hp-section-label">Explore & Plan</div>
+          <div className="max-w-7xl mx-auto px-10 mb-5">
+            <div className="hp-section-label">Explore &amp; Plan</div>
           </div>
 
           {/* ── DATA SECTIONS ── */}
@@ -317,12 +419,13 @@ export default function Home() {
                     <div className="hp-card-eyebrow">Trending</div>
                     <div className="hp-card-title">Popular Routes</div>
                   </div>
-                  <span style={{ fontSize: 20 }}>✈️</span>
+                  <div className="hp-card-icon">✈️</div>
                 </div>
 
                 {POPULAR_ROUTES.map((r) => (
                   <div key={r.label} className="hp-route-row">
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div className="hp-route-left">
+                      <div className="hp-route-plane">✈</div>
                       <span className="hp-route-label">{r.label}</span>
                       {r.tag && (
                         <span className={`hp-route-tag${r.tag === "Price Drop" ? " drop" : ""}`}>
@@ -334,7 +437,7 @@ export default function Home() {
                   </div>
                 ))}
 
-                <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 12, textAlign: "center" }}>
+                <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 14, textAlign: "center" }}>
                   Based on searches in the last 24 hours
                 </p>
               </div>
@@ -347,7 +450,7 @@ export default function Home() {
                     <div className="hp-card-eyebrow">DEL → BLR</div>
                     <div className="hp-card-title">Cheapest Dates</div>
                   </div>
-                  <span style={{ fontSize: 20 }}>📅</span>
+                  <div className="hp-card-icon">📅</div>
                 </div>
 
                 <div className="hp-bars">
@@ -373,7 +476,7 @@ export default function Home() {
                   <span>Cheapest: Mon 30 Jun · ₹2,450</span>
                 </div>
 
-                <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 8 }}>
+                <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 10 }}>
                   Select a route above to see live price trends
                 </p>
               </div>
@@ -399,22 +502,7 @@ export default function Home() {
                   </div>
                 ))}
 
-                <button
-                  style={{
-                    marginTop: 18,
-                    width: "100%",
-                    padding: "10px",
-                    borderRadius: 12,
-                    background: "linear-gradient(135deg, rgba(99,102,241,0.2), rgba(34,211,238,0.1))",
-                    border: "1px solid rgba(99,102,241,0.3)",
-                    color: "#a5b4fc",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    letterSpacing: "0.03em",
-                    transition: "background 0.2s",
-                  }}
-                >
+                <button className="hp-nav-btn">
                   Ask NavBot for full analysis →
                 </button>
               </div>
