@@ -1,22 +1,35 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabase } from "@/lib/supabase"
-// ⚠️ This assumes lib/supabase.ts does `export const supabase = createClient(...)`
-// and hands back an already-configured client. If it instead does
-// `export default createClient(...)`, change the import above to:
-//   import supabase from "@/lib/supabase"
-// If it exports a function like `createClient()` that you have to call
-// yourself, change the import to that name and add `const supabase = createClient()`
-// as the first line inside GET below. Open lib/supabase.ts to check which
-// of these three shapes it actually is.
+import { getUserFromRequest } from "@/lib/auth"
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ bookingId: string }> }
 ) {
-  const { bookingId } = await params
+  const user = getUserFromRequest(req)
+  if (!user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+  }
 
+  const { bookingId } = await params
   if (!bookingId) {
     return NextResponse.json({ error: "Missing bookingId" }, { status: 400 })
+  }
+
+  // ✅ Confirm this booking actually belongs to the requesting user BEFORE
+  // returning any passenger data. This is the check that was missing.
+  const { data: booking, error: bookingError } = await supabase
+    .from("bookings")
+    .select("id, user_id")
+    .eq("id", bookingId)
+    .single()
+
+  if (bookingError || !booking) {
+    return NextResponse.json({ error: "Booking not found" }, { status: 404 })
+  }
+
+  if (booking.user_id !== user.userId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
   const { data, error } = await supabase

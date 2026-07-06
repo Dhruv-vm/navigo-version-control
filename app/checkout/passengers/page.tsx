@@ -50,11 +50,24 @@ type Passenger = {
   isPrimaryContact: boolean
 }
 
+// Shape returned by GET /api/saved-passengers (snake_case, straight from DB)
+type SavedPassenger = {
+  id: string
+  title: string | null
+  first_name: string
+  middle_name: string | null
+  last_name: string
+  date_of_birth: string | null
+  gender: string | null
+  nationality: string | null
+  frequent_flyer: string | null
+}
+
 type FieldErrors = Partial<Record<keyof Passenger, string>>
 
-const STORAGE_KEY = "navigo:checkoutSelection"
-const PAX_DRAFT_KEY = "navigo:passengerDraft"
-const BOOKING_ID_KEY = "navigo:bookingId"
+const STORAGE_KEY = "navigo:checkoutSelection" // flight selection — not personal data, stays global
+const PAX_DRAFT_BASE_KEY = "navigo:passengerDraft"
+const BOOKING_ID_BASE_KEY = "navigo:bookingId"
 const MAX_PASSENGERS = 9
 
 const airlineLogos: Record<string, string> = {
@@ -68,6 +81,31 @@ const airlineLogos: Record<string, string> = {
 
 function makeId() {
   return Math.random().toString(36).slice(2, 10)
+}
+
+// ✅ FIX (data isolation): the passenger draft and bookingId used to be
+// stored under one fixed sessionStorage key shared by EVERY user on this
+// browser/tab. If a previous person's session was still in sessionStorage
+// (e.g. shared computer, or the app didn't clear it on logout), the next
+// person to open the passenger form would see their pre-filled details.
+//
+// Fix: namespace those two keys with the logged-in user's id (decoded
+// from the JWT already in localStorage — see Navbar.tsx, same token).
+// Logged-out visitors fall back to a "guest" bucket, which is still
+// isolated from every real account.
+function decodeUserIdFromToken(token: string): string | null {
+  try {
+    const payload = token.split(".")[1]
+    const decoded = JSON.parse(atob(payload))
+    return decoded?.userId ?? null
+  } catch {
+    return null
+  }
+}
+
+function getAuthToken(): string | null {
+  if (typeof window === "undefined") return null
+  return localStorage.getItem("token")
 }
 
 function emptyPassenger(type: PassengerType = "adult", isPrimaryContact = false): Passenger {
@@ -89,12 +127,27 @@ function emptyPassenger(type: PassengerType = "adult", isPrimaryContact = false)
   }
 }
 
-// ✅ FIXED — DB stores times as plain "HH:MM:SS". new Date("06:00:00") is
-// Invalid Date in most browsers, silently producing "--:--". Parse directly.
+function savedPassengerToPassenger(sp: SavedPassenger, isPrimaryContact: boolean): Passenger {
+  return {
+    localId: makeId(),
+    type: "adult",
+    title: sp.title || "",
+    firstName: sp.first_name || "",
+    middleName: sp.middle_name || "",
+    lastName: sp.last_name || "",
+    dob: sp.date_of_birth || "",
+    gender: sp.gender || "",
+    nationality: sp.nationality || "India",
+    frequentFlyer: sp.frequent_flyer || "",
+    email: "",
+    countryCode: "+91",
+    mobile: "",
+    isPrimaryContact,
+  }
+}
+
 function formatTime(timeStr?: string): string {
   if (!timeStr) return "--:--"
-
-  // Handle "HH:MM" or "HH:MM:SS"
   const match = timeStr.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/)
   if (match) {
     const hours = Number(match[1])
@@ -103,24 +156,15 @@ function formatTime(timeStr?: string): string {
     const displayHour = hours % 12 === 0 ? 12 : hours % 12
     return `${displayHour}:${minutes} ${period}`
   }
-
-  // Fallback: full ISO datetime string
   const d = new Date(timeStr)
   if (isNaN(d.getTime())) return "--:--"
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
 }
 
-// ✅ FIXED — same issue: "HH:MM:SS" is not a valid date string for new Date().
-// For the date label we need the travel_date, not the time string.
-// We accept an optional travelDate param; fall back gracefully if absent.
 function formatDateLabel(timeStr?: string, travelDate?: string): string {
-  // Prefer an explicit travel date if provided
   const source = travelDate || timeStr
   if (!source) return ""
-
-  // If it looks like a bare time string, we can't infer a date from it
   if (/^\d{1,2}:\d{2}/.test(source) && !travelDate) return ""
-
   const d = new Date(source)
   if (isNaN(d.getTime())) return ""
   return d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })
@@ -165,27 +209,41 @@ export default function PassengerDetailsPage() {
   const [mounted, setMounted] = useState(false)
   const [pulseSavings, setPulseSavings] = useState(false)
 
+  // ✅ NEW: identity + saved-passenger reuse state
+  const [authToken, setAuthToken] = useState<string | null>(null)
+  const [storageNamespace, setStorageNamespace] = useState<string>("guest")
+  const [savedPassengers, setSavedPassengers] = useState<SavedPassenger[]>([])
+  const [saveForNextTime, setSaveForNextTime] = useState(true)
+
+  const paxDraftKey = `${PAX_DRAFT_BASE_KEY}:${storageNamespace}`
+  const bookingIdKey = `${BOOKING_ID_BASE_KEY}:${storageNamespace}`
+
   useEffect(() => {
     const t = requestAnimationFrame(() => setMounted(true))
     return () => cancelAnimationFrame(t)
   }, [])
 
   useEffect(() => {
+    // Resolve identity FIRST so the draft/bookingId keys we read below are
+    // already correctly namespaced — avoids a race where we'd briefly read
+    // the wrong (shared) key.
+    const token = getAuthToken()
+    const namespace = token ? decodeUserIdFromToken(token) || "guest" : "guest"
+    setAuthToken(token)
+    setStorageNamespace(namespace)
+
+    const localPaxDraftKey = `${PAX_DRAFT_BASE_KEY}:${namespace}`
+    const localBookingIdKey = `${BOOKING_ID_BASE_KEY}:${namespace}`
+
     try {
       const raw = sessionStorage.getItem(STORAGE_KEY)
       if (!raw) { setLoadState("missing"); return }
       const parsed = JSON.parse(raw) as CheckoutSelection
 
-      console.log("========== STORAGE ==========")
-      console.log("Depart departure_time:", parsed.departFlight?.departure_time)
-      console.log("Depart arrival_time:", parsed.departFlight?.arrival_time)
-      console.log("Return present:", !!parsed.returnFlight)
-      console.log("=============================")
-
       setSelection(parsed)
       setLoadState("found")
 
-      const draftRaw = sessionStorage.getItem(PAX_DRAFT_KEY)
+      const draftRaw = sessionStorage.getItem(localPaxDraftKey)
       if (draftRaw) {
         const draft = JSON.parse(draftRaw) as Passenger[]
         if (Array.isArray(draft) && draft.length > 0) {
@@ -201,22 +259,33 @@ export default function PassengerDetailsPage() {
         setExpandedId(initial[0].localId)
       }
 
-      const savedBookingId = sessionStorage.getItem(BOOKING_ID_KEY)
+      const savedBookingId = sessionStorage.getItem(localBookingIdKey)
       if (savedBookingId) setBookingId(savedBookingId)
     } catch (err) {
       console.error("Failed to read checkout selection:", err)
       setLoadState("missing")
+    }
+
+    // ✅ Fetch this user's saved passenger book (server-scoped to their
+    // user_id — see /api/saved-passengers). Only happens when logged in.
+    if (token) {
+      fetch("/api/saved-passengers", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((res) => (res.ok ? res.json() : { passengers: [] }))
+        .then((data) => setSavedPassengers(data.passengers || []))
+        .catch((err) => console.error("Failed to load saved passengers:", err))
     }
   }, [])
 
   useEffect(() => {
     if (passengers.length === 0) return
     try {
-      sessionStorage.setItem(PAX_DRAFT_KEY, JSON.stringify(passengers))
+      sessionStorage.setItem(paxDraftKey, JSON.stringify(passengers))
     } catch (err) {
       console.error("Failed to persist passenger draft:", err)
     }
-  }, [passengers])
+  }, [passengers, paxDraftKey])
 
   useEffect(() => {
     const t = setTimeout(() => setPulseSavings(true), 700)
@@ -229,6 +298,10 @@ export default function PassengerDetailsPage() {
 
   const updatePassenger = (localId: string, patch: Partial<Passenger>) => {
     setPassengers((prev) => prev.map((p) => (p.localId === localId ? { ...p, ...patch } : p)))
+  }
+
+  const replacePassenger = (localId: string, next: Passenger) => {
+    setPassengers((prev) => prev.map((p) => (p.localId === localId ? { ...next, localId, isPrimaryContact: p.isPrimaryContact } : p)))
   }
 
   const validateAndCollapse = (localId: string) => {
@@ -282,13 +355,21 @@ export default function PassengerDetailsPage() {
 
     if (!selection) return
 
+    if (!authToken) {
+      setSaveError("Please sign in to continue with your booking.")
+      return
+    }
+
     setIsSaving(true)
     setSaveError(null)
 
     try {
       const res = await fetch("/api/bookings", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`, // ✅ booking now tied to logged-in user
+        },
         body: JSON.stringify({
           bookingId: bookingId || undefined,
           departFlightInstanceId: selection.departFlight.flight_instance_id,
@@ -314,6 +395,7 @@ export default function PassengerDetailsPage() {
           seatSelectionPrice: 0,
           mealsPrice: 0,
           totalPrice: total,
+          saveForNextTime, // ✅ upserts into saved_passengers, doesn't touch past bookings
         }),
       })
 
@@ -321,7 +403,7 @@ export default function PassengerDetailsPage() {
       if (!res.ok) throw new Error(data.error || "Failed to save passenger details")
 
       setBookingId(data.bookingId)
-      sessionStorage.setItem(BOOKING_ID_KEY, data.bookingId)
+      sessionStorage.setItem(bookingIdKey, data.bookingId)
       sessionStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
@@ -411,13 +493,20 @@ export default function PassengerDetailsPage() {
                   <p className="text-xs text-slate-500">Enter details as per your government ID</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3 text-right">
-                <div>
-                  <p className="text-xs text-slate-400">Book faster next time!</p>
-                  <p className="text-[11px] text-slate-500">Sign in to save passenger details</p>
+              {!authToken ? (
+                <div className="flex items-center gap-3 text-right">
+                  <div>
+                    <p className="text-xs text-slate-400">Book faster next time!</p>
+                    <p className="text-[11px] text-slate-500">Sign in to save passenger details</p>
+                  </div>
+                  <button onClick={() => router.push("/login")} className="text-sm text-cyan-300 border border-cyan-400/30 rounded-lg px-4 py-2 hover:bg-cyan-400/10 transition-colors">Sign In</button>
                 </div>
-                <button className="text-sm text-cyan-300 border border-cyan-400/30 rounded-lg px-4 py-2 hover:bg-cyan-400/10 transition-colors">Sign In</button>
-              </div>
+              ) : (
+                <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+                  <Checkbox checked={saveForNextTime} onChange={() => setSaveForNextTime((v) => !v)} />
+                  Save these details for my next booking
+                </label>
+              )}
             </div>
 
             <div className="space-y-4">
@@ -431,9 +520,11 @@ export default function PassengerDetailsPage() {
                   canRemove={passengers.length > 1}
                   entranceDelay={220 + index * 90}
                   mounted={mounted}
+                  savedPassengers={savedPassengers}
                   onToggle={() => setExpandedId((cur) => (cur === passenger.localId ? null : passenger.localId))}
                   onCollapseWithValidation={() => validateAndCollapse(passenger.localId)}
                   onChange={(patch) => updatePassenger(passenger.localId, patch)}
+                  onUseSaved={(sp) => replacePassenger(passenger.localId, savedPassengerToPassenger(sp, passenger.isPrimaryContact))}
                   onRemove={() => removePassenger(passenger.localId)}
                   onSetPrimaryContact={() => handleSetPrimaryContact(passenger.localId)}
                 />
@@ -574,10 +665,10 @@ function BoardingPassMini({ flight, travelDate, tag }: { flight: StoredFlight; t
   )
 }
 
-function PassengerCard({ index, passenger, isExpanded, errors, canRemove, entranceDelay, mounted, onToggle, onCollapseWithValidation, onChange, onRemove, onSetPrimaryContact }: {
+function PassengerCard({ index, passenger, isExpanded, errors, canRemove, entranceDelay, mounted, savedPassengers, onToggle, onCollapseWithValidation, onChange, onUseSaved, onRemove, onSetPrimaryContact }: {
   index: number; passenger: Passenger; isExpanded: boolean; errors: FieldErrors; canRemove: boolean
-  entranceDelay: number; mounted: boolean; onToggle: () => void; onCollapseWithValidation: () => void
-  onChange: (patch: Partial<Passenger>) => void; onRemove: () => void; onSetPrimaryContact: () => void
+  entranceDelay: number; mounted: boolean; savedPassengers: SavedPassenger[]; onToggle: () => void; onCollapseWithValidation: () => void
+  onChange: (patch: Partial<Passenger>) => void; onUseSaved: (sp: SavedPassenger) => void; onRemove: () => void; onSetPrimaryContact: () => void
 }) {
   const isComplete = Object.keys(errors).length === 0 && passenger.firstName && passenger.lastName
   const label = passenger.type === "adult" ? `Adult ${index + 1}` : passenger.type === "child" ? `Child ${index + 1}${passenger.age ? ` (Age ${passenger.age})` : ""}` : `Infant ${index + 1}`
@@ -612,6 +703,29 @@ function PassengerCard({ index, passenger, isExpanded, errors, canRemove, entran
       <div className="grid transition-all duration-400 ease-out" style={{ gridTemplateRows: isExpanded ? "1fr" : "0fr" }}>
         <div className="overflow-hidden">
           <div className={`px-6 pb-6 space-y-5 transition-opacity duration-300 ${isExpanded ? "opacity-100 delay-100" : "opacity-0"}`}>
+
+            {savedPassengers.length > 0 && (
+              <div>
+                <label className="block text-xs text-slate-500 mb-1.5">Use a saved passenger (optional)</label>
+                <select
+                  defaultValue=""
+                  onChange={(e) => {
+                    const sp = savedPassengers.find((s) => s.id === e.target.value)
+                    if (sp) onUseSaved(sp)
+                    e.target.value = ""
+                  }}
+                  className="field-input w-full sm:w-auto rounded-lg bg-white/[0.03] px-3 py-2.5 text-sm text-white outline-none border border-white/[0.08] focus:border-amber-300/60 transition-all duration-200"
+                >
+                  <option value="" disabled className="bg-[#0D1A2C]">Select a saved passenger…</option>
+                  {savedPassengers.map((sp) => (
+                    <option key={sp.id} value={sp.id} className="bg-[#0D1A2C]">
+                      {sp.title ? `${sp.title} ` : ""}{sp.first_name} {sp.last_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <Field label="Title">
                 <Select value={passenger.title} error={!!errors.title} onChange={(v) => onChange({ title: v })} options={["Mr", "Mrs", "Ms", "Dr"]} placeholder="Select" />

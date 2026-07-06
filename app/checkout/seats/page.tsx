@@ -315,7 +315,11 @@ export default function SeatSelectionPage() {
     if (loadState !== "found" || !selection?.bookingId) return
 
     let cancelled = false
-    fetch(`/api/bookings/${selection.bookingId}/passengers`)
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null
+
+    fetch(`/api/bookings/${selection.bookingId}/passengers`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (cancelled || !data) return
@@ -327,10 +331,10 @@ export default function SeatSelectionPage() {
       })
       .catch((err) => console.warn("[seats] passenger fetch failed, keeping sessionStorage/placeholder names:", err))
 
-    return () => {
-      cancelled = true
-    }
-  }, [loadState, selection])
+        return () => {
+          cancelled = true
+        }
+      }, [loadState, selection])
 
   // ---- fetch seat maps ------------------------------------------------------
   useEffect(() => {
