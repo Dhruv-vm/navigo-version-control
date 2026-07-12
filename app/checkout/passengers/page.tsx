@@ -3,6 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import Navbar from "@/components/navbar"
+import {
+  Select as UiSelect,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 type StoredFlight = {
   id: string
@@ -452,7 +459,9 @@ export default function PassengerDetailsPage() {
     <div className="min-h-screen bg-[#060B14] text-white relative overflow-x-hidden">
       <PageStyles />
 
+      <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-blue-400 via-amber-400 to-amber-300 z-10" />
       <div className="pointer-events-none fixed top-[-200px] left-[15%] w-[600px] h-[600px] bg-amber-500/[0.04] blur-[160px] rounded-full" />
+      <div className="pointer-events-none fixed top-[10%] right-[5%] w-[450px] h-[450px] bg-blue-500/[0.035] blur-[150px] rounded-full" />
       <div className="pointer-events-none fixed bottom-[-200px] right-[10%] w-[500px] h-[500px] bg-cyan-400/[0.04] blur-[160px] rounded-full" />
 
       <Navbar />
@@ -581,33 +590,60 @@ export default function PassengerDetailsPage() {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Stepper — continuous progress track instead of dashed segments, matching
+// the seats page: one gradient line fills as you move through the six real
+// checkout stages, rather than reading as a static checklist.
+// ---------------------------------------------------------------------------
+
 function Stepper({ activeId }: { activeId: number }) {
+  const progressPct = ((activeId - 1) / (steps.length - 1)) * 100
+
   return (
-    <div className="flex items-center justify-between mb-8 flex-wrap gap-y-3">
+    <div className="flex items-center justify-between mb-10 flex-wrap gap-y-4">
       <button onClick={() => history.back()}
-        className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-300 transition-colors shrink-0">
-        <span aria-hidden>←</span> Back
+        className="group flex items-center gap-2 pl-2 pr-3.5 py-1.5 rounded-full text-sm text-slate-400 hover:text-white border border-transparent hover:border-white/10 hover:bg-white/[0.04] transition-colors shrink-0">
+        <span className="w-6 h-6 rounded-full bg-white/[0.05] flex items-center justify-center group-hover:bg-white/10 transition-colors" aria-hidden>←</span>
+        Back
       </button>
-      <div className="flex items-center gap-1 overflow-x-auto">
-        {steps.map((step, i) => (
-          <div key={step.id} className="flex items-center shrink-0">
-            <div className="flex items-center gap-2">
-              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold border transition-colors duration-300
-                ${step.id === activeId ? "border-amber-400 bg-amber-400/15 text-amber-300 step-pulse"
-                  : step.id < activeId ? "border-emerald-400/60 bg-emerald-400/10 text-emerald-300"
-                  : "border-white/10 text-slate-600"}`}>
-                {step.id < activeId ? <span className="tick-pop inline-block">✓</span> : step.id}
-              </span>
-              <span className={`text-xs hidden sm:inline ${step.id === activeId ? "text-amber-300 font-medium" : step.id < activeId ? "text-emerald-300/80" : "text-slate-600"}`}>
-                {step.label}
-              </span>
-            </div>
-            {i < steps.length - 1 && (
-              <span className="relative w-6 sm:w-8 h-px mx-2 bg-white/10 overflow-hidden">
-                {step.id < activeId && <span className="absolute inset-0 bg-emerald-400/40 step-line-fill" />}
-              </span>
-            )}
-          </div>
+
+      <div className="relative hidden md:flex items-center flex-1 max-w-2xl ml-6">
+        <div className="absolute left-3 right-3 h-[2px] bg-white/[0.08] rounded-full" />
+        <div
+          className="absolute left-3 h-[2px] bg-gradient-to-r from-emerald-400 to-amber-400 rounded-full transition-all duration-500"
+          style={{ width: `calc(${progressPct}% - ${progressPct > 0 ? 24 : 0}px)` }}
+        />
+        <div className="relative flex items-center justify-between w-full">
+          {steps.map((step) => {
+            const isDone = step.id < activeId
+            const isCurrent = step.id === activeId
+            return (
+              <div key={step.id} className="flex flex-col items-center gap-1.5 bg-[#060B14] px-1">
+                <span
+                  className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold border transition-colors duration-300
+                    ${isCurrent ? "border-amber-400 bg-amber-400/15 text-amber-300 step-pulse"
+                      : isDone ? "border-emerald-400/60 bg-emerald-400/10 text-emerald-300"
+                      : "border-white/10 text-slate-600"}`}>
+                  {isDone ? <span className="tick-pop inline-block">✓</span> : step.id}
+                </span>
+                <span className={`text-[11px] whitespace-nowrap ${isCurrent ? "text-amber-300 font-medium" : isDone ? "text-emerald-300/80" : "text-slate-600"}`}>
+                  {step.label}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* compact mobile fallback — dot progress only, six labels don't fit a phone width */}
+      <div className="flex md:hidden items-center gap-1.5">
+        {steps.map((step) => (
+          <span
+            key={step.id}
+            className={`w-1.5 h-1.5 rounded-full transition-colors ${
+              step.id < activeId ? "bg-emerald-400" : step.id === activeId ? "bg-amber-400 w-4" : "bg-white/15"
+            }`}
+          />
         ))}
       </div>
     </div>
@@ -616,8 +652,21 @@ function Stepper({ activeId }: { activeId: number }) {
 
 function BoardingPassMini({ flight, travelDate, tag }: { flight: StoredFlight; travelDate?: string; tag?: "Departure" | "Return" }) {
   return (
-    <div className="relative bg-gradient-to-br from-[#0D1A2C] via-[#0B1729] to-[#0A1424] border border-white/[0.08] rounded-2xl overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 flex-wrap gap-3">
+    <div className="relative bg-gradient-to-br from-[#0D1A2C] via-[#0B1729] to-[#0A1424] border border-white/[0.08] rounded-2xl overflow-hidden ticket-edge">
+      <div
+        className={`absolute top-0 left-0 right-0 h-[2px] ${
+          tag === "Return" ? "bg-gradient-to-r from-cyan-400 to-blue-400" : "bg-gradient-to-r from-amber-300 to-amber-500"
+        }`}
+      />
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.03]"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px)",
+          backgroundSize: "26px 26px",
+        }}
+      />
+      <div className="relative flex items-center justify-between px-6 py-4 flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-white flex items-center justify-center overflow-hidden shadow-sm ring-1 ring-black/5 shrink-0">
             <img src={airlineLogos[flight.airline] || "/airlines/default.png"} alt={flight.airline} className="w-7 h-7 object-contain" />
@@ -640,7 +689,7 @@ function BoardingPassMini({ flight, travelDate, tag }: { flight: StoredFlight; t
 
         <div className="flex items-center gap-6">
           <div className="text-right">
-            <p className="text-xl font-semibold tabular-nums">{formatTime(flight.departure_time)}</p>
+            <p className="font-display text-xl font-extrabold tabular-nums">{formatTime(flight.departure_time)}</p>
             <p className="text-[11px] text-slate-500">{formatDateLabel(flight.departure_time, travelDate)}</p>
           </div>
           <div className="flex flex-col items-center w-28">
@@ -653,7 +702,7 @@ function BoardingPassMini({ flight, travelDate, tag }: { flight: StoredFlight; t
             <p className="text-[10px] text-slate-500 mt-1">{flight.stops ? `${flight.stops} stop` : "Non-stop"}</p>
           </div>
           <div>
-            <p className="text-xl font-semibold tabular-nums">{formatTime(flight.arrival_time)}</p>
+            <p className="font-display text-xl font-extrabold tabular-nums">{formatTime(flight.arrival_time)}</p>
             <p className="text-[11px] text-slate-500">{formatDateLabel(flight.arrival_time, travelDate)}</p>
           </div>
           <button className="text-xs text-cyan-300 hover:text-cyan-200 transition-colors flex items-center gap-1 shrink-0">
@@ -665,6 +714,16 @@ function BoardingPassMini({ flight, travelDate, tag }: { flight: StoredFlight; t
   )
 }
 
+// Cycling per-passenger colour — same palette used for seat assignment on
+// the next page, so "Adult 2" reads as the same person (violet) across the
+// whole checkout flow instead of every passenger card looking identical.
+const PAX_COLORS = [
+  { ring: "border-cyan-400/30", bg: "bg-cyan-400/15", text: "text-cyan-300" },
+  { ring: "border-violet-400/30", bg: "bg-violet-400/15", text: "text-violet-300" },
+  { ring: "border-rose-400/30", bg: "bg-rose-400/15", text: "text-rose-300" },
+  { ring: "border-emerald-400/30", bg: "bg-emerald-400/15", text: "text-emerald-300" },
+]
+
 function PassengerCard({ index, passenger, isExpanded, errors, canRemove, entranceDelay, mounted, savedPassengers, onToggle, onCollapseWithValidation, onChange, onUseSaved, onRemove, onSetPrimaryContact }: {
   index: number; passenger: Passenger; isExpanded: boolean; errors: FieldErrors; canRemove: boolean
   entranceDelay: number; mounted: boolean; savedPassengers: SavedPassenger[]; onToggle: () => void; onCollapseWithValidation: () => void
@@ -672,16 +731,17 @@ function PassengerCard({ index, passenger, isExpanded, errors, canRemove, entran
 }) {
   const isComplete = Object.keys(errors).length === 0 && passenger.firstName && passenger.lastName
   const label = passenger.type === "adult" ? `Adult ${index + 1}` : passenger.type === "child" ? `Child ${index + 1}${passenger.age ? ` (Age ${passenger.age})` : ""}` : `Infant ${index + 1}`
+  const paxColor = PAX_COLORS[index % PAX_COLORS.length]
 
   return (
     <div
-      className="relative bg-gradient-to-br from-[#0D1A2C] via-[#0B1729] to-[#0A1424] border border-white/[0.08] rounded-2xl overflow-hidden transition-all duration-500 ease-out card-enter"
+      className="relative bg-gradient-to-br from-[#0D1A2C] via-[#0B1729] to-[#0A1424] border border-white/[0.08] rounded-2xl overflow-hidden transition-all duration-500 ease-out card-enter ticket-edge"
       style={{ transitionDelay: mounted ? `${entranceDelay}ms` : "0ms", opacity: mounted ? 1 : 0, transform: mounted ? "translateY(0) scale(1)" : "translateY(16px) scale(0.97)" }}
     >
       <button type="button" onClick={isExpanded ? onCollapseWithValidation : onToggle}
         className="w-full flex items-center justify-between px-6 py-4 text-left">
         <div className="flex items-center gap-3">
-          <span className="w-7 h-7 rounded-full bg-cyan-400/15 border border-cyan-400/30 flex items-center justify-center text-xs font-semibold text-cyan-300">{index + 1}</span>
+          <span className={`w-7 h-7 rounded-full border flex items-center justify-center text-xs font-semibold ${paxColor.bg} ${paxColor.ring} ${paxColor.text}`}>{index + 1}</span>
           <span className="font-medium">{label}</span>
           {passenger.isPrimaryContact && (
             <span className="text-[10px] uppercase tracking-wide text-amber-300 bg-amber-400/10 border border-amber-400/20 rounded px-1.5 py-0.5">Primary Contact</span>
@@ -707,22 +767,24 @@ function PassengerCard({ index, passenger, isExpanded, errors, canRemove, entran
             {savedPassengers.length > 0 && (
               <div>
                 <label className="block text-xs text-slate-500 mb-1.5">Use a saved passenger (optional)</label>
-                <select
-                  defaultValue=""
-                  onChange={(e) => {
-                    const sp = savedPassengers.find((s) => s.id === e.target.value)
+                <UiSelect
+                  value=""
+                  onValueChange={(id : string) => {
+                    const sp = savedPassengers.find((s) => s.id === id)
                     if (sp) onUseSaved(sp)
-                    e.target.value = ""
                   }}
-                  className="field-input w-full sm:w-auto rounded-lg bg-white/[0.03] px-3 py-2.5 text-sm text-white outline-none border border-white/[0.08] focus:border-amber-300/60 transition-all duration-200"
                 >
-                  <option value="" disabled className="bg-[#0D1A2C]">Select a saved passenger…</option>
-                  {savedPassengers.map((sp) => (
-                    <option key={sp.id} value={sp.id} className="bg-[#0D1A2C]">
-                      {sp.title ? `${sp.title} ` : ""}{sp.first_name} {sp.last_name}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="field-input w-full sm:w-auto min-w-[240px] rounded-lg bg-white/[0.03] px-3 py-2.5 text-sm text-white border border-white/[0.08] data-[state=open]:border-amber-300/60 h-auto">
+                    <SelectValue placeholder="Select a saved passenger…" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#0D1A2C] border-white/10 text-white">
+                    {savedPassengers.map((sp) => (
+                      <SelectItem key={sp.id} value={sp.id} className="focus:bg-amber-400/10 focus:text-amber-200">
+                        {sp.title ? `${sp.title} ` : ""}{sp.first_name} {sp.last_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </UiSelect>
               </div>
             )}
 
@@ -810,32 +872,60 @@ function TextInput({ value, onChange, type = "text", placeholder, error, errorTe
   )
 }
 
+// ---------------------------------------------------------------------------
+// Select — same external API as before (value / onChange / options /
+// placeholder / error), now backed by shadcn's Radix Select so the dropdown
+// popover is actually themed dark everywhere instead of falling back to the
+// OS's native (usually light) select menu.
+// ---------------------------------------------------------------------------
+
 function Select({ value, onChange, options, placeholder, error }: {
   value: string; onChange: (v: string) => void; options: string[]; placeholder?: string; error?: boolean
 }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)}
-      className={`field-input w-full rounded-lg bg-white/[0.03] px-3 py-2.5 text-sm text-white outline-none transition-all duration-200 border appearance-none
-      ${error ? "border-rose-400/50" : "border-white/[0.08] focus:border-amber-300/60"}`}>
-      <option value="" disabled className="text-slate-500">{placeholder || "Select"}</option>
-      {options.map((opt) => <option key={opt} value={opt} className="bg-[#0D1A2C]">{opt}</option>)}
-    </select>
+    <UiSelect value={value || undefined} onValueChange={onChange}>
+      <SelectTrigger
+        className={`field-input w-full rounded-lg bg-white/[0.03] px-3 py-2.5 text-sm text-white border h-auto
+        ${error ? "border-rose-400/50" : "border-white/[0.08] data-[state=open]:border-amber-300/60"}`}
+      >
+        <SelectValue placeholder={placeholder || "Select"} />
+      </SelectTrigger>
+      <SelectContent className="bg-[#0D1A2C] border-white/10 text-white">
+        {options.map((opt) => (
+          <SelectItem key={opt} value={opt} className="focus:bg-amber-400/10 focus:text-amber-200">
+            {opt}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </UiSelect>
   )
 }
 
 function PhoneInput({ countryCode, mobile, onCountryChange, onMobileChange, error, errorText }: {
   countryCode: string; mobile: string; onCountryChange: (v: string) => void; onMobileChange: (v: string) => void; error?: boolean; errorText?: string
 }) {
+  const countries = [
+    { code: "+91", flag: "🇮🇳" },
+    { code: "+1", flag: "🇺🇸" },
+    { code: "+44", flag: "🇬🇧" },
+    { code: "+971", flag: "🇦🇪" },
+  ]
+
   return (
     <div>
       <div className="flex gap-2">
-        <select value={countryCode} onChange={(e) => onCountryChange(e.target.value)}
-          className="field-input rounded-lg bg-white/[0.03] px-2.5 py-2.5 text-sm text-white outline-none border border-white/[0.08] focus:border-amber-300/60 transition-all duration-200 w-[88px]">
-          <option value="+91" className="bg-[#0D1A2C]">🇮🇳 +91</option>
-          <option value="+1" className="bg-[#0D1A2C]">🇺🇸 +1</option>
-          <option value="+44" className="bg-[#0D1A2C]">🇬🇧 +44</option>
-          <option value="+971" className="bg-[#0D1A2C]">🇦🇪 +971</option>
-        </select>
+        <UiSelect value={countryCode} onValueChange={onCountryChange}>
+          <SelectTrigger className="field-input rounded-lg bg-white/[0.03] px-2.5 py-2.5 text-sm text-white border border-white/[0.08] data-[state=open]:border-amber-300/60 h-auto w-[92px] shrink-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-[#0D1A2C] border-white/10 text-white min-w-[110px]">
+            {countries.map((c) => (
+              <SelectItem key={c.code} value={c.code} className="focus:bg-amber-400/10 focus:text-amber-200">
+                {c.flag} {c.code}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </UiSelect>
         <input type="tel" value={mobile} placeholder="98765 43210" onChange={(e) => onMobileChange(e.target.value.replace(/[^\d]/g, ""))}
           className={`field-input flex-1 rounded-lg bg-white/[0.03] px-3 py-2.5 text-sm text-white outline-none transition-all duration-200 border tracking-wide
           ${error ? "border-rose-400/50" : "border-white/[0.08] focus:border-amber-300/60"}`} />
@@ -865,7 +955,8 @@ function TripSummary({ departFlight, returnFlight, passengerCount, baseFare, tax
 
   return (
     <div className="sticky top-24 space-y-4">
-      <div className="bg-gradient-to-b from-[#0D1A2C] to-[#0A1424] border border-white/[0.08] rounded-2xl overflow-hidden">
+      <div className="relative bg-gradient-to-b from-[#0D1A2C] to-[#0A1424] border border-white/[0.08] rounded-2xl overflow-hidden ticket-edge">
+        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-blue-400 via-amber-400 to-amber-300" />
         <div className="flex items-center justify-between px-6 py-5">
           <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Trip Summary</p>
           <span className="text-xs text-cyan-300">{passengerCount} Passenger{passengerCount > 1 ? "s" : ""}</span>
@@ -901,11 +992,13 @@ function TripSummary({ departFlight, returnFlight, passengerCount, baseFare, tax
           </div>
         </div>
 
-        <div className="px-6 flex items-end justify-between mb-5">
-          <span className="text-sm text-slate-400">Total Price</span>
-          <span className="text-[26px] leading-none font-semibold tabular-nums text-amber-300">
-            ₹{displayedTotal.toLocaleString("en-IN")}
-          </span>
+        <div className="px-6 pb-1">
+          <div className="border border-blue-400/25 bg-blue-500/[0.07] rounded-xl px-4 py-3.5 flex items-end justify-between mb-4">
+            <span className="text-sm text-slate-300">Total Price</span>
+            <span className="font-display text-[26px] leading-none font-extrabold tabular-nums text-amber-300">
+              ₹{displayedTotal.toLocaleString("en-IN")}
+            </span>
+          </div>
         </div>
 
         <div className="px-6 space-y-2.5 mb-2">
@@ -928,7 +1021,7 @@ function TripSummary({ departFlight, returnFlight, passengerCount, baseFare, tax
 
         <div className="px-6 pb-6 pt-2">
           <button onClick={onContinue} disabled={isSaving}
-            className={`continue-btn w-full px-6 py-3.5 rounded-xl font-semibold bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 text-[#060B14] transition-all flex items-center justify-center gap-2 shadow-[0_8px_30px_rgba(251,191,36,0.15)]
+            className={`continue-btn w-full px-6 py-3.5 rounded-full font-semibold pill-cta transition-all flex items-center justify-center gap-2
             ${!canContinue ? "opacity-90" : ""} ${isSaving ? "opacity-70 cursor-not-allowed" : ""}`}>
             {isSaving ? (
               <><span className="w-4 h-4 border-2 border-[#060B14]/30 border-t-[#060B14] rounded-full spin-loader" />Saving your details…</>
@@ -969,7 +1062,7 @@ function TripSummaryLeg({ flight, tag }: { flight: StoredFlight; tag?: "Departur
       <div className="px-6 pb-5">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-lg font-semibold tabular-nums">{formatTime(flight.departure_time)}</p>
+            <p className="font-display text-lg font-bold tabular-nums">{formatTime(flight.departure_time)}</p>
             <p className="text-[11px] text-slate-500">{flight.origin}</p>
           </div>
           <div className="flex flex-col items-center flex-1 px-3">
@@ -978,7 +1071,7 @@ function TripSummaryLeg({ flight, tag }: { flight: StoredFlight; tag?: "Departur
             <p className="text-[10px] text-slate-500">{flight.stops ? `${flight.stops} stop` : "Non-stop"}</p>
           </div>
           <div className="text-right">
-            <p className="text-lg font-semibold tabular-nums">{formatTime(flight.arrival_time)}</p>
+            <p className="font-display text-lg font-bold tabular-nums">{formatTime(flight.arrival_time)}</p>
             <p className="text-[11px] text-slate-500">{flight.destination}</p>
           </div>
         </div>
@@ -1044,14 +1137,40 @@ function NavBot() {
 function PageStyles() {
   return (
     <style jsx global>{`
+      @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&display=swap');
+
+      /* Bold sans for prices/times — same font used on the seats page so
+         big numerals feel consistent across the whole checkout flow. */
+      .font-display { font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.01em; }
+
+      /* Hairline gold ticket border — same boarding-pass edge used on the
+         seats page cards, so these panels don't read as bare flat boxes. */
+      .ticket-edge { position: relative; }
+      .ticket-edge::before {
+        content: "";
+        position: absolute;
+        inset: 3px;
+        border: 1px solid rgba(212,175,55,0.10);
+        border-radius: inherit;
+        pointer-events: none;
+      }
+
+      /* Blue → gold pill CTA — matches the seats page "Continue" button,
+         so the primary action looks identical at every checkout step. */
+      .pill-cta {
+        background: linear-gradient(90deg, #38BDF8 0%, #60A5FA 30%, #D4AF37 70%, #FBBF24 100%);
+        color: #060B14;
+        box-shadow: 0 8px 30px rgba(56,189,248,0.18), 0 8px 30px rgba(251,191,36,0.18);
+      }
+      .pill-cta:hover { filter: brightness(1.06); }
+
       @keyframes stepPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(251,191,36,0.35); } 50% { box-shadow: 0 0 0 6px rgba(251,191,36,0); } }
       .step-pulse { animation: stepPulse 2s ease-out infinite; }
       @keyframes tickPop { 0% { transform: scale(0); opacity: 0; } 60% { transform: scale(1.3); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
       .tick-pop { animation: tickPop 320ms cubic-bezier(0.34,1.56,0.64,1); }
       .check-pop { animation: tickPop 320ms cubic-bezier(0.34,1.56,0.64,1); display: inline-block; }
-      @keyframes stepLineFill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-      .step-line-fill { transform-origin: left; animation: stepLineFill 500ms ease-out forwards; }
-      .field-input:focus { transform: scale(1.01); box-shadow: 0 0 0 3px rgba(251,191,36,0.08); }
+      .field-input:focus,
+      .field-input[data-state="open"] { transform: scale(1.01); box-shadow: 0 0 0 3px rgba(251,191,36,0.08); }
       @keyframes fieldShake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
       .field-shake { animation: fieldShake 280ms ease-in-out; }
       .add-passenger-btn:hover { box-shadow: 0 0 0 1px rgba(34,211,238,0.15), 0 8px 24px rgba(34,211,238,0.08); }
@@ -1071,9 +1190,8 @@ function PageStyles() {
       .navbot-bounce { animation: navbotFloat 0.6s ease-in-out infinite; transform: scale(1.05); }
       @keyframes tooltipIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
       .navbot-tooltip { animation: tooltipIn 180ms ease-out; }
-      select.field-input option { color: white; }
       @media (prefers-reduced-motion: reduce) {
-        .step-pulse, .tick-pop, .check-pop, .step-line-fill, .field-shake,
+        .step-pulse, .tick-pop, .check-pop, .field-shake,
         .savings-pulse, .shimmer-card::after, .navbot-float, .navbot-bounce,
         .navbot-tooltip { animation: none !important; }
       }

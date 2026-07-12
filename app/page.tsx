@@ -63,19 +63,28 @@ export default function Home() {
   return (
     <>
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&display=swap');
+
         /* ── Tokens ── */
+        /* Palette brought in line with the rest of Navigo — amber/gold as
+           the primary accent, cyan as secondary (NavBot's color elsewhere),
+           blue only as the shared pill-CTA/accent-bar partner. The old
+           indigo/violet accents here didn't match the navbar, search box,
+           or checkout flow at all. */
         :root {
-          --indigo: #6366F1;
-          --cyan:   #22D3EE;
           --gold:   #F59E0B;
+          --gold-soft: #FBBF24;
+          --blue:   #60A5FA;
+          --cyan:   #22D3EE;
           --navy:   #020617;
           --card:   rgba(255,255,255,0.045);
           --card-hover: rgba(255,255,255,0.065);
           --border: rgba(255,255,255,0.09);
-          --border-hover: rgba(255,255,255,0.16);
-          --text:   #F0F4FF;
+          --border-hover: rgba(251,191,36,0.28);
+          --text:   #F5F7FF;
           --muted:  #64748B;
           --soft:   #94A3B8;
+          font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
         }
 
         @keyframes hpFadeUp {
@@ -95,17 +104,17 @@ export default function Home() {
           border-radius: 999px;
           font-size: 13px;
           font-weight: 600;
-          color: #bae6fd;
-          background: linear-gradient(135deg, rgba(56,189,248,0.14), rgba(245,158,11,0.10));
-          border: 1px solid rgba(56,189,248,0.35);
-          box-shadow: 0 4px 20px -6px rgba(56,189,248,0.35);
+          color: #fde68a;
+          background: linear-gradient(135deg, rgba(56,189,248,0.14), rgba(245,158,11,0.14));
+          border: 1px solid rgba(251,191,36,0.35);
+          box-shadow: 0 4px 20px -6px rgba(251,191,36,0.35);
           cursor: pointer;
           transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
           animation: hpFadeUp 0.6s ease-out 0.15s both;
         }
         .hp-hero-badge:hover {
-          border-color: rgba(56,189,248,0.6);
-          box-shadow: 0 6px 26px -6px rgba(56,189,248,0.5);
+          border-color: rgba(251,191,36,0.6);
+          box-shadow: 0 6px 26px -6px rgba(251,191,36,0.5);
           transform: translateY(-1px);
         }
 
@@ -132,6 +141,17 @@ export default function Home() {
           animation: hpFadeUp 0.6s ease-out both;
           box-shadow: 0 4px 24px -8px rgba(0,0,0,0.4);
         }
+        /* signature top accent bar — same blue → gold pairing used across
+           the navbar and checkout flow, so these cards read as the same
+           product instead of generic glass panels. */
+        .hp-card::before {
+          content: "";
+          position: absolute;
+          top: 0; left: 0; right: 0;
+          height: 2px;
+          background: linear-gradient(90deg, var(--blue), var(--gold-soft), var(--gold));
+          opacity: 0.85;
+        }
         .hp-card:nth-child(1) { animation-delay: 0.05s; }
         .hp-card:nth-child(2) { animation-delay: 0.12s; }
         .hp-card:nth-child(3) { animation-delay: 0.19s; }
@@ -146,7 +166,7 @@ export default function Home() {
           width: 200px; height: 200px;
           border-radius: 50%;
           filter: blur(70px);
-          opacity: 0.16;
+          opacity: 0.24;
           pointer-events: none;
           top: -50px; right: -50px;
           animation: hpFloatGlow 8s ease-in-out infinite;
@@ -160,8 +180,9 @@ export default function Home() {
           margin-bottom: 20px;
         }
         .hp-card-title {
+          font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
           font-size: 16px;
-          font-weight: 700;
+          font-weight: 800;
           color: var(--text);
           letter-spacing: 0.005em;
         }
@@ -178,8 +199,8 @@ export default function Home() {
           border-radius: 12px;
           display: flex; align-items: center; justify-content: center;
           font-size: 17px;
-          background: rgba(255,255,255,0.05);
-          border: 1px solid var(--border);
+          background: rgba(251,191,36,0.14);
+          border: 1px solid rgba(251,191,36,0.3);
         }
 
         /* ── Route rows ── */
@@ -196,8 +217,8 @@ export default function Home() {
           transition: background 0.2s, border-color 0.2s, transform 0.2s;
         }
         .hp-route-row:hover {
-          background: rgba(99,102,241,0.12);
-          border-color: rgba(99,102,241,0.3);
+          background: rgba(251,191,36,0.1);
+          border-color: rgba(251,191,36,0.3);
           transform: translateX(2px);
         }
         .hp-route-left { display: flex; align-items: center; gap: 10px; }
@@ -206,23 +227,27 @@ export default function Home() {
           border-radius: 8px;
           display: flex; align-items: center; justify-content: center;
           font-size: 12px;
-          background: linear-gradient(135deg, rgba(99,102,241,0.25), rgba(34,211,238,0.15));
+          background: linear-gradient(135deg, rgba(251,191,36,0.22), rgba(34,211,238,0.15));
           flex-shrink: 0;
         }
         .hp-route-label { font-size: 13.5px; color: var(--text); font-weight: 500; }
-        .hp-route-price { font-size: 14.5px; font-weight: 700; color: var(--cyan); }
+        .hp-route-price {
+          font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+          font-size: 14.5px; font-weight: 800; color: var(--gold-soft);
+        }
         .hp-route-tag {
           font-size: 9.5px;
           padding: 3px 9px;
           border-radius: 20px;
-          background: rgba(99,102,241,0.2);
-          color: #a5b4fc;
-          font-weight: 700;
+          background: rgba(251,191,36,0.16);
+          border: 1px solid rgba(251,191,36,0.35);
+          color: #fbbf24;
+          font-weight: 800;
           letter-spacing: 0.05em;
           margin-left: 4px;
           text-transform: uppercase;
         }
-        .hp-route-tag.drop { background: rgba(34,211,238,0.15); color: var(--cyan); }
+        .hp-route-tag.drop { background: rgba(34,211,238,0.14); border-color: rgba(34,211,238,0.35); color: var(--cyan); }
 
         /* ── Price bars ── */
         .hp-bars {
@@ -244,11 +269,13 @@ export default function Home() {
         }
         .hp-bar {
           width: 100%;
-          border-radius: 6px 6px 3px 3px;
-          transition: opacity 0.2s, filter 0.2s;
+          border-radius: 8px 8px 3px 3px;
+          background-image: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0) 40%);
+          background-blend-mode: overlay;
+          transition: opacity 0.2s, filter 0.2s, transform 0.2s;
           min-height: 6px;
         }
-        .hp-bar-wrap:hover .hp-bar { opacity: 1 !important; filter: brightness(1.15); }
+        .hp-bar-wrap:hover .hp-bar { filter: brightness(1.15); transform: scaleY(1.02); }
         .hp-bar-date {
           font-size: 9px;
           color: var(--muted);
@@ -260,17 +287,17 @@ export default function Home() {
         .hp-bar-price {
           font-size: 9px;
           color: var(--soft);
-          font-weight: 600;
+          font-weight: 700;
         }
         .hp-bar-best {
           font-size: 11px;
-          color: var(--cyan);
+          color: var(--gold-soft);
           font-weight: 700;
           margin-top: 8px;
           padding: 8px 12px;
           border-radius: 10px;
-          background: rgba(34,211,238,0.08);
-          border: 1px solid rgba(34,211,238,0.2);
+          background: rgba(251,191,36,0.08);
+          border: 1px solid rgba(251,191,36,0.22);
           display: flex;
           align-items: center;
           gap: 6px;
@@ -288,7 +315,7 @@ export default function Home() {
         .hp-insight-icon {
           width: 38px; height: 38px;
           border-radius: 11px;
-          background: linear-gradient(135deg, rgba(99,102,241,0.22), rgba(245,158,11,0.12));
+          background: linear-gradient(135deg, rgba(34,211,238,0.18), rgba(245,158,11,0.14));
           border: 1px solid rgba(255,255,255,0.08);
           display: flex; align-items: center; justify-content: center;
           font-size: 18px;
@@ -326,7 +353,8 @@ export default function Home() {
           background: linear-gradient(90deg, var(--border), transparent);
         }
 
-        /* ── AI badge on insight card ── */
+        /* ── AI badge on insight card — cyan-primary, matching the
+           NavBot chip color used in the navbar. ── */
         .hp-ai-badge {
           display: inline-flex;
           align-items: center;
@@ -334,9 +362,9 @@ export default function Home() {
           font-size: 10.5px;
           padding: 5px 12px;
           border-radius: 20px;
-          background: linear-gradient(135deg, rgba(99,102,241,0.28), rgba(34,211,238,0.18));
-          border: 1px solid rgba(99,102,241,0.35);
-          color: #c7d2fe;
+          background: linear-gradient(135deg, rgba(34,211,238,0.2), rgba(251,191,36,0.12));
+          border: 1px solid rgba(34,211,238,0.35);
+          color: #a5f3fc;
           font-weight: 700;
           letter-spacing: 0.05em;
         }
@@ -346,9 +374,9 @@ export default function Home() {
           width: 100%;
           padding: 12px;
           border-radius: 14px;
-          background: linear-gradient(135deg, rgba(99,102,241,0.22), rgba(34,211,238,0.12));
-          border: 1px solid rgba(99,102,241,0.35);
-          color: #c7d2fe;
+          background: linear-gradient(135deg, rgba(34,211,238,0.16), rgba(251,191,36,0.14));
+          border: 1px solid rgba(34,211,238,0.3);
+          color: #a5f3fc;
           font-size: 13px;
           font-weight: 700;
           cursor: pointer;
@@ -356,8 +384,8 @@ export default function Home() {
           transition: background 0.25s, border-color 0.25s, transform 0.2s;
         }
         .hp-nav-btn:hover {
-          background: linear-gradient(135deg, rgba(99,102,241,0.32), rgba(34,211,238,0.2));
-          border-color: rgba(99,102,241,0.5);
+          background: linear-gradient(135deg, rgba(34,211,238,0.26), rgba(251,191,36,0.22));
+          border-color: rgba(34,211,238,0.5);
           transform: translateY(-1px);
         }
       `}</style>
@@ -378,11 +406,11 @@ export default function Home() {
           {/* ── HERO ── */}
           <div className="max-w-7xl mx-auto px-10 pt-24 pb-10">
             <h1
-              className="text-6xl font-bold leading-[1.05] max-w-2xl tracking-tight"
+              className="text-6xl font-extrabold leading-[1.05] max-w-2xl tracking-tight"
               style={{ animation: "hpFadeUp 0.7s ease-out both" }}
             >
               Where will your{" "}
-              <span className="bg-gradient-to-r from-blue-400 via-cyan-300 to-yellow-400 text-transparent bg-clip-text">
+              <span className="bg-gradient-to-br from-blue-400 via-cyan-300 to-amber-400 text-transparent bg-clip-text">
                 journey take you?
               </span>
             </h1>
@@ -413,7 +441,7 @@ export default function Home() {
 
               {/* Card 1 — Popular Routes */}
               <div className="hp-card">
-                <div className="hp-card-glow" style={{ background: "#6366F1" }} />
+                <div className="hp-card-glow" style={{ background: "#60A5FA" }} />
                 <div className="hp-card-head">
                   <div>
                     <div className="hp-card-eyebrow">Trending</div>
@@ -457,13 +485,23 @@ export default function Home() {
                   {CHEAP_DATES.map((d, i) => {
                     const heights = [30, 55, 75, 90, 60, 25, 45]
                     const pct = heights[i]
-                    const color = d.level === 1 ? "#22D3EE" : d.level === 2 ? "#6366F1" : d.level === 3 ? "#818CF8" : "#F59E0B"
+                    // Cool → warm scale: cyan (cheapest) through blue and
+                    // amber to deep gold (priciest) — stays inside the
+                    // brand palette instead of the old indigo/violet mix.
+                    // Full saturation throughout; the cheapest day gets a
+                    // glow instead of dimming the rest (dimmed amber over
+                    // dark navy read as muddy brown, not gold).
+                    const color = d.level === 1 ? "#22D3EE" : d.level === 2 ? "#60A5FA" : d.level === 3 ? "#FBBF24" : "#F59E0B"
                     return (
                       <div key={d.date} className="hp-bar-wrap" title={`${d.date}: ${d.price}`}>
                         <span className="hp-bar-price">{d.price}</span>
                         <div
                           className="hp-bar"
-                          style={{ height: `${pct}%`, background: color, opacity: d.level === 1 ? 1 : 0.55 }}
+                          style={{
+                            height: `${pct}%`,
+                            backgroundColor: color,
+                            boxShadow: d.level === 1 ? `0 0 14px ${color}99` : "none",
+                          }}
                         />
                         <span className="hp-bar-date">{d.date.split(" ").slice(0, 2).join(" ")}</span>
                       </div>

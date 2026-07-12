@@ -146,39 +146,39 @@ export default function FlightCard({
       </div>
 
       {/* MAIN GRID */}
-      <div className="grid grid-cols-[1.5fr_3fr_auto_1.4fr] items-center gap-6">
+      <div className="grid grid-cols-[1.4fr_2.8fr_auto_1.3fr] items-center gap-6">
 
         {/* LEFT */}
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-white/95 flex items-center justify-center shadow-[0_4px_14px_rgba(0,0,0,0.3)] ring-1 ring-white/10 overflow-hidden">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-12 h-12 rounded-2xl bg-white/95 flex items-center justify-center shadow-[0_4px_14px_rgba(0,0,0,0.3)] ring-1 ring-white/10 overflow-hidden shrink-0">
             <img src={logo} className="w-8 h-8 object-contain" />
           </div>
 
-          <div>
-            <p className="font-semibold text-lg tracking-tight whitespace-nowrap text-white">
+          <div className="min-w-0">
+            <p className="font-display font-bold text-lg tracking-tight whitespace-nowrap text-white">
               {flight.airline}
             </p>
-            <p className="text-xs text-gray-400 tracking-wide">
+            <p className="text-xs text-gray-400 tracking-wide whitespace-nowrap">
               {flight.origin} <span className="text-amber-300/70">→</span> {flight.destination}
             </p>
           </div>
         </div>
 
         {/* CENTER TIMELINE */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between min-w-0">
 
           {/* DEPART */}
-          <div className="text-right">
-            <p className="text-xl font-semibold tabular-nums text-white">
+          <div className="text-right shrink-0">
+            <p className="font-display text-xl font-extrabold tabular-nums text-white whitespace-nowrap">
               {formatTime(flight.departure_time)}
             </p>
             <p className="text-[11px] text-gray-500 tracking-wide uppercase mt-0.5">{flight.origin}</p>
           </div>
 
           {/* TIMELINE */}
-          <div className="flex flex-col items-center flex-1 mx-4">
+          <div className="flex flex-col items-center flex-1 mx-3 min-w-[64px]">
 
-            <p className="text-[11px] text-gray-400 mb-1.5 font-medium tracking-wide">
+            <p className="text-[11px] text-gray-400 mb-1.5 font-medium tracking-wide whitespace-nowrap">
               {flight.duration || "--"}
             </p>
 
@@ -190,14 +190,14 @@ export default function FlightCard({
               <div className="absolute -top-[3.5px] right-0 w-2 h-2 bg-amber-300 rounded-full shadow-[0_0_8px_rgba(252,211,77,0.7)]"></div>
             </div>
 
-            <p className="text-[11px] text-gray-500 mt-2 tracking-wide">
+            <p className="text-[11px] text-gray-500 mt-2 tracking-wide whitespace-nowrap">
               {getStopsText(flight.stops)}
             </p>
           </div>
 
           {/* ARRIVAL */}
-          <div>
-            <p className="text-xl font-semibold tabular-nums text-white">
+          <div className="shrink-0">
+            <p className="font-display text-xl font-extrabold tabular-nums text-white whitespace-nowrap">
               {formatTime(flight.arrival_time)}
             </p>
             <p className="text-[11px] text-gray-500 tracking-wide uppercase mt-0.5">{flight.destination}</p>
@@ -208,16 +208,16 @@ export default function FlightCard({
         {/* TICKET PERFORATION — signature element separating the fare */}
         <div className="relative self-stretch w-px hidden md:block">
           <div className="absolute inset-y-1 left-0 border-l border-dashed border-white/15" />
-          <div className="absolute -top-[7px] -left-[6px] w-3 h-3 rounded-full bg-[#070b16] border border-white/10" />
-          <div className="absolute -bottom-[7px] -left-[6px] w-3 h-3 rounded-full bg-[#070b16] border border-white/10" />
+          <div className="absolute -top-[7px] -left-[4px] w-2.5 h-2.5 rounded-full bg-[#070b16] border border-white/10" />
+          <div className="absolute -bottom-[7px] -left-[4px] w-2.5 h-2.5 rounded-full bg-[#070b16] border border-white/10" />
         </div>
 
         {/* RIGHT PRICE */}
-        <div className="flex flex-col items-end pl-2">
+        <div className="flex flex-col items-end pl-6 min-w-0">
 
-          <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">Total fare</p>
+          <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-1 whitespace-nowrap">Total fare</p>
 
-          <p className="text-[2rem] leading-none font-bold text-transparent bg-clip-text bg-gradient-to-b from-amber-200 to-amber-400 drop-shadow-[0_0_18px_rgba(251,191,36,0.25)] tabular-nums">
+          <p className="font-display text-[2rem] leading-none font-extrabold text-transparent bg-clip-text bg-gradient-to-b from-amber-200 to-amber-400 drop-shadow-[0_0_18px_rgba(251,191,36,0.25)] tabular-nums whitespace-nowrap">
             ₹{totalPrice.toLocaleString()}
           </p>
 
@@ -230,13 +230,14 @@ export default function FlightCard({
               e.stopPropagation();
               onSelect?.();
             }}
-            className={`mt-4 px-6 py-2.5 rounded-xl font-semibold text-sm tracking-wide transition-all duration-200
+            className={`select-btn relative overflow-hidden mt-4 px-6 py-2.5 rounded-full font-semibold text-sm tracking-wide whitespace-nowrap transition-all duration-200
             ${isSelected
               ? "bg-white/[0.06] text-amber-300 border border-amber-300/40"
-              : "bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-400 text-black hover:scale-[1.03] hover:shadow-[0_8px_24px_rgba(251,191,36,0.35)]"
+              : "pill-cta hover:scale-[1.03]"
             }`}
           >
-            {isSelected ? "Selected ✓" : "Select flight"}
+            {!isSelected && <span className="select-shine absolute inset-0" aria-hidden />}
+            <span className="relative">{isSelected ? "Selected ✓" : "Select flight"}</span>
           </button>
         </div>
 
@@ -249,6 +250,25 @@ export default function FlightCard({
         <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.03]">💺 Seat</span>
         <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.03]">🍽️ Meal</span>
       </div>
+
+      <style jsx>{`
+        .select-shine::after {
+          content: "";
+          position: absolute;
+          top: 0; bottom: 0; left: -60%;
+          width: 40%;
+          background: linear-gradient(100deg, transparent, rgba(255,255,255,0.35), transparent);
+          transform: skewX(-20deg);
+          animation: selectShineSweep 3.2s ease-in-out infinite;
+        }
+        @keyframes selectShineSweep {
+          0% { left: -60%; }
+          55%, 100% { left: 130%; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .select-shine::after { animation: none !important; }
+        }
+      `}</style>
     </div>
   );
 }

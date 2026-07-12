@@ -23,7 +23,8 @@ export default function PriceInsight({
 
   if (!insight) {
     return (
-      <div className="bg-[#0B1220] p-5 rounded-xl border border-white/10">
+      <div className="relative bg-gradient-to-b from-[#0D1A2C] to-[#0A1424] p-5 rounded-2xl border border-white/[0.08] ticket-edge overflow-hidden">
+        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-blue-400 via-amber-400 to-amber-300" />
         <h3 className="text-sm font-semibold text-gray-300">Price Insight</h3>
         <p className="text-xs text-gray-500 mt-2">
           Search for flights to see live pricing insight.
@@ -35,15 +36,16 @@ export default function PriceInsight({
   const { label, labelColor, score, message, projectedTrend } = insight
 
   return (
-    <div className="bg-[#0B1220] p-5 rounded-xl border border-white/10 space-y-6">
+    <div className="relative bg-gradient-to-b from-[#0D1A2C] to-[#0A1424] p-5 rounded-2xl border border-white/[0.08] space-y-6 ticket-edge overflow-hidden">
+      <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-blue-400 via-amber-400 to-amber-300" />
 
       {/* PRICE INSIGHT */}
       <div>
-        <h3 className="text-base font-semibold mb-3">Price Insight</h3>
+        <h3 className="font-display text-base font-bold mb-3">Price Insight</h3>
 
         <span
-          className="inline-block text-sm font-medium px-3 py-1 rounded-md mb-3"
-          style={{ backgroundColor: `${labelColor}22`, color: labelColor }}
+          className="inline-block text-sm font-medium px-3 py-1 rounded-full mb-3"
+          style={{ backgroundColor: `${labelColor}22`, color: labelColor, border: `1px solid ${labelColor}40` }}
         >
           {label}
         </span>
@@ -56,12 +58,12 @@ export default function PriceInsight({
         </div>
       </div>
 
-      <div className="border-t border-white/5" />
+      <div className="border-t border-dashed border-white/[0.1]" />
 
       {/* PRICE TREND */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-base font-semibold">Price Trend</h3>
+          <h3 className="font-display text-base font-bold">Price Trend</h3>
         </div>
 
         <p className="text-xs text-gray-400 mb-3">
@@ -73,9 +75,9 @@ export default function PriceInsight({
 
       {/* ✅ Reserved space for the upcoming chatbot — intentionally left
           minimal for now. Replace this block when wiring it up. */}
-      <div className="border-t border-white/5 pt-4">
-        <div className="rounded-lg border border-dashed border-white/10 px-4 py-6 text-center">
-          <p className="text-xs text-gray-500">AI assistant coming soon</p>
+      <div className="border-t border-dashed border-white/[0.1] pt-4">
+        <div className="rounded-xl border border-dashed border-cyan-400/20 bg-cyan-400/[0.04] px-4 py-6 text-center">
+          <p className="text-xs text-cyan-300/70">🤖 AI assistant coming soon</p>
         </div>
       </div>
     </div>
@@ -124,7 +126,7 @@ function ScoreGauge({ score, color }: { score: number; color: string }) {
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center pt-2">
-        <p className="text-lg font-bold leading-none">{score.toFixed(1)}</p>
+        <p className="font-display text-lg font-extrabold leading-none">{score.toFixed(1)}</p>
         <p className="text-[10px] text-gray-500">of 5</p>
       </div>
     </div>
