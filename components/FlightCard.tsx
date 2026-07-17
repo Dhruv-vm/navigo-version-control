@@ -1,5 +1,8 @@
 "use client";
 
+import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
+import FlightDetailsModal from "@/components/FlightDetailsModal.tsx"
+
 type Flight = {
   airline: string;
   origin: string;
@@ -70,10 +73,12 @@ export default function FlightCard({
   flight,
   onSelect,
   isSelected,
+  isCheapest,
 }: {
   flight: Flight;
   onSelect?: () => void;
   isSelected?: boolean;
+  isCheapest?: boolean;
 }) {
   const logo = airlineLogos[flight.airline] || "/airlines/default.png";
 
@@ -88,7 +93,27 @@ export default function FlightCard({
   const tagGradient =
     (tagKey && tagStyles[tagKey]) || "from-blue-300 via-cyan-400 to-blue-400 text-black";
 
+  // Drives the logo scale-in and the timeline "draw" on first mount.
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    const t = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(t);
+  }, []);
+
+  // Real click-position ripple on the Select button.
+  const [ripples, setRipples] = useState<{ id: number; x: number; y: number }[]>([]);
+  const spawnRipple = (e: ReactMouseEvent<HTMLElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const id = Date.now() + Math.random();
+    setRipples((r) => [...r, { id, x: e.clientX - rect.left, y: e.clientY - rect.top }]);
+    setTimeout(() => setRipples((r) => r.filter((rp) => rp.id !== id)), 650);
+  };
+
+  // "Details" opens an info-only modal — doesn't select or navigate.
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
   return (
+    <>
     <div
       onClick={onSelect}
       className={`
@@ -140,9 +165,15 @@ export default function FlightCard({
           )}
         </div>
 
-        <span className="text-[11px] text-amber-300/80 cursor-pointer hover:text-amber-200 tracking-wide font-medium transition-colors">
-          Details →
-        </span>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setDetailsOpen(true);
+          }}
+          className="group/details text-[11px] text-amber-300/80 hover:text-amber-200 tracking-wide font-medium transition-colors flex items-center gap-1"
+        >
+          Details <span className="inline-block transition-transform duration-200 group-hover/details:translate-x-1">→</span>
+        </button>
       </div>
 
       {/* MAIN GRID */}
@@ -150,7 +181,14 @@ export default function FlightCard({
 
         {/* LEFT */}
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-12 h-12 rounded-2xl bg-white/95 flex items-center justify-center shadow-[0_4px_14px_rgba(0,0,0,0.3)] ring-1 ring-white/10 overflow-hidden shrink-0">
+          <div
+            className="w-12 h-12 rounded-2xl bg-white/95 flex items-center justify-center shadow-[0_4px_14px_rgba(0,0,0,0.3)] ring-1 ring-white/10 overflow-hidden shrink-0 transition-transform duration-300 group-hover:scale-110"
+            style={{
+              transform: entered ? "scale(1)" : "scale(0.4)",
+              opacity: entered ? 1 : 0,
+              transition: "transform 380ms cubic-bezier(0.34,1.56,0.64,1), opacity 300ms ease-out",
+            }}
+          >
             <img src={logo} className="w-8 h-8 object-contain" />
           </div>
 
@@ -178,16 +216,35 @@ export default function FlightCard({
           {/* TIMELINE */}
           <div className="flex flex-col items-center flex-1 mx-3 min-w-[64px]">
 
-            <p className="text-[11px] text-gray-400 mb-1.5 font-medium tracking-wide whitespace-nowrap">
+            <p
+              className="text-[11px] text-gray-400 mb-1.5 font-medium tracking-wide whitespace-nowrap transition-opacity duration-300"
+              style={{ opacity: entered ? 1 : 0, transitionDelay: entered ? "450ms" : "0ms" }}
+            >
               {flight.duration || "--"}
             </p>
 
             <div className="relative w-full h-px bg-white/10 rounded-full">
-              <div className="absolute left-0 top-0 h-px w-full bg-gradient-to-r from-amber-300/70 via-cyan-300/70 to-amber-300/70 rounded-full"></div>
+              <div
+                className="absolute left-0 top-0 h-px bg-gradient-to-r from-amber-300/70 via-cyan-300/70 to-amber-300/70 rounded-full origin-left"
+                style={{
+                  width: "100%",
+                  transform: entered ? "scaleX(1)" : "scaleX(0)",
+                  transition: "transform 550ms cubic-bezier(0.22,1,0.36,1) 100ms",
+                }}
+              />
 
-              <div className="absolute -top-[3.5px] left-0 w-2 h-2 bg-amber-300 rounded-full shadow-[0_0_8px_rgba(252,211,77,0.7)]"></div>
-              <div className="absolute -top-[3px] left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-white/50 rounded-full"></div>
-              <div className="absolute -top-[3.5px] right-0 w-2 h-2 bg-amber-300 rounded-full shadow-[0_0_8px_rgba(252,211,77,0.7)]"></div>
+              <div
+                className="absolute -top-[3.5px] left-0 w-2 h-2 bg-amber-300 rounded-full shadow-[0_0_8px_rgba(252,211,77,0.7)] transition-transform duration-300"
+                style={{ transform: entered ? "scale(1)" : "scale(0)", transitionDelay: "150ms" }}
+              />
+              <div
+                className="absolute -top-[3px] left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-white/50 rounded-full transition-transform duration-300"
+                style={{ transform: entered ? "translateX(-50%) scale(1)" : "translateX(-50%) scale(0)", transitionDelay: "420ms" }}
+              />
+              <div
+                className="absolute -top-[3.5px] right-0 w-2 h-2 bg-amber-300 rounded-full shadow-[0_0_8px_rgba(252,211,77,0.7)] transition-transform duration-300"
+                style={{ transform: entered ? "scale(1)" : "scale(0)", transitionDelay: "620ms" }}
+              />
             </div>
 
             <p className="text-[11px] text-gray-500 mt-2 tracking-wide whitespace-nowrap">
@@ -215,9 +272,16 @@ export default function FlightCard({
         {/* RIGHT PRICE */}
         <div className="flex flex-col items-end pl-6 min-w-0">
 
-          <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-1 whitespace-nowrap">Total fare</p>
+          <div className="flex items-center gap-1.5 mb-1">
+            {isCheapest && (
+              <span className="cheapest-shimmer text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-emerald-400/15 text-emerald-300 border border-emerald-400/25">
+                Best price
+              </span>
+            )}
+            <p className="text-[10px] uppercase tracking-widest text-gray-500 whitespace-nowrap">Total fare</p>
+          </div>
 
-          <p className="font-display text-[2rem] leading-none font-extrabold text-transparent bg-clip-text bg-gradient-to-b from-amber-200 to-amber-400 drop-shadow-[0_0_18px_rgba(251,191,36,0.25)] tabular-nums whitespace-nowrap">
+          <p className="price-glow font-display text-[2rem] leading-none font-extrabold text-transparent bg-clip-text bg-gradient-to-b from-amber-200 to-amber-400 tabular-nums whitespace-nowrap">
             ₹{totalPrice.toLocaleString()}
           </p>
 
@@ -230,12 +294,16 @@ export default function FlightCard({
               e.stopPropagation();
               onSelect?.();
             }}
+            onMouseDown={spawnRipple}
             className={`select-btn relative overflow-hidden mt-4 px-6 py-2.5 rounded-full font-semibold text-sm tracking-wide whitespace-nowrap transition-all duration-200
             ${isSelected
               ? "bg-white/[0.06] text-amber-300 border border-amber-300/40"
               : "pill-cta hover:scale-[1.03]"
             }`}
           >
+            {ripples.map((rp) => (
+              <span key={rp.id} className="btn-ripple absolute" style={{ left: rp.x, top: rp.y }} />
+            ))}
             {!isSelected && <span className="select-shine absolute inset-0" aria-hidden />}
             <span className="relative">{isSelected ? "Selected ✓" : "Select flight"}</span>
           </button>
@@ -265,10 +333,62 @@ export default function FlightCard({
           0% { left: -60%; }
           55%, 100% { left: 130%; }
         }
+
+        /* Low-intensity glow pulse on every price */
+        @keyframes priceGlowPulse {
+          0%, 100% { filter: drop-shadow(0 0 10px rgba(251,191,36,0.18)); }
+          50% { filter: drop-shadow(0 0 20px rgba(251,191,36,0.32)); }
+        }
+        .price-glow { animation: priceGlowPulse 2.8s ease-in-out infinite; }
+
+        /* Green shimmer specifically for the cheapest fare on screen */
+        .cheapest-shimmer {
+          position: relative;
+          overflow: hidden;
+        }
+        .cheapest-shimmer::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(100deg, transparent, rgba(52,211,153,0.4), transparent);
+          transform: translateX(-100%);
+          animation: cheapestShimmerSweep 2.4s ease-in-out infinite;
+        }
+        @keyframes cheapestShimmerSweep {
+          0% { transform: translateX(-100%); }
+          60%, 100% { transform: translateX(100%); }
+        }
+
+        /* Real click-position ripple on the Select button */
+        .btn-ripple {
+          width: 10px; height: 10px;
+          border-radius: 50%;
+          background: rgba(255,255,255,0.55);
+          transform: translate(-50%, -50%) scale(0);
+          pointer-events: none;
+          animation: btnRippleExpand 600ms ease-out forwards;
+        }
+        @keyframes btnRippleExpand {
+          to { transform: translate(-50%, -50%) scale(14); opacity: 0; }
+        }
+
         @media (prefers-reduced-motion: reduce) {
-          .select-shine::after { animation: none !important; }
+          .select-shine::after, .price-glow, .cheapest-shimmer::after, .btn-ripple {
+            animation: none !important;
+          }
         }
       `}</style>
     </div>
+
+    {detailsOpen && (
+      <FlightDetailsModal
+        flight={flight}
+        totalPrice={totalPrice}
+        safePrice={safePrice}
+        pax={pax}
+        onClose={() => setDetailsOpen(false)}
+      />
+    )}
+    </>
   );
 }

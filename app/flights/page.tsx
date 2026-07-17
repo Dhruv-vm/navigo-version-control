@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import Navbar from "@/components/navbar"
 import FlightCard from "@/components/FlightCard"
@@ -49,6 +49,40 @@ function normalizeFlight(f: any) {
 
 type SortMode = "best" | "cheapest" | "fastest" | "value"
 
+// Counts up to the target value instead of jumping straight to it —
+// used for the sticky-bar total price whenever the selection changes.
+function useCountUp(target: number, durationMs = 700) {
+  const [value, setValue] = useState(target)
+  useEffect(() => {
+    let raf: number
+    const start = performance.now()
+    const from = value
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - start) / durationMs)
+      const eased = 1 - Math.pow(1 - progress, 3)
+      setValue(Math.round(from + (target - from) * eased))
+      if (progress < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target])
+  return value
+}
+
+// Real click-position ripple (not a generic :active pulse) — reused on the
+// Edit Search and Continue buttons.
+function useRipple() {
+  const [ripples, setRipples] = useState<{ id: number; x: number; y: number }[]>([])
+  const spawn = (e: ReactMouseEvent<HTMLElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const id = Date.now() + Math.random()
+    setRipples((r) => [...r, { id, x: e.clientX - rect.left, y: e.clientY - rect.top }])
+    setTimeout(() => setRipples((r) => r.filter((rp) => rp.id !== id)), 650)
+  }
+  return { ripples, spawn }
+}
+
 const airlineLogos: Record<string, string> = {
   "IndiGo": "/airlines/indigo.png",
   "Air India": "/airlines/airindia.png",
@@ -82,16 +116,38 @@ export default function FlightsPage() {
   const [openSections, setOpenSections] = useState({ stops: true, price: true, airlines: true })
   const [particles, setParticles] = useState<any[]>([])
 
+  // ── Animation state ────────────────────────────────────────────────────
+  const [mounted, setMounted] = useState(false)
+  const [flightsLoading, setFlightsLoading] = useState(true)
+  const [resetShake, setResetShake] = useState(false)
+  const [navigating, setNavigating] = useState(false)
+  const [swapSpin, setSwapSpin] = useState(false)
+  const editRipple = useRipple()
+  const continueRipple = useRipple()
+
+  const triggerReset = () => {
+    setSelectedStops(null); setMaxPrice(20000); setSelectedAirlines([])
+    setResetShake(true)
+    setTimeout(() => setResetShake(false), 420)
+  }
+
   const toggleSection = (key: "stops" | "price" | "airlines") => {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }))
   }
+
+  useEffect(() => {
+    const t = requestAnimationFrame(() => setMounted(true))
+    return () => cancelAnimationFrame(t)
+  }, [])
 
   useEffect(() => {
     setParticles([...Array(30)].map(() => ({ top: Math.random() * 100, left: Math.random() * 100 })))
   }, [])
 
   useEffect(() => {
-    if (!origin || !destination || !depart) return
+    if (!origin || !destination || !depart) { setFlightsLoading(false); return }
+
+    setFlightsLoading(true)
 
     fetch(`/api/flights?origin=${origin}&destination=${destination}&depart=${depart}`)
       .then((res) => res.json())
@@ -100,6 +156,7 @@ export default function FlightsPage() {
         setDepartFlights(Array.isArray(data) ? data.map(normalizeFlight) : [])
       })
       .catch((err) => console.error("[flights] depart fetch failed:", err))
+      .finally(() => setFlightsLoading(false))
 
     if (mode === "roundtrip" && returnDate) {
       fetch(`/api/flights?origin=${destination}&destination=${origin}&depart=${returnDate}`)
@@ -204,7 +261,7 @@ export default function FlightsPage() {
     if (!selectedDepartFlight) return
 
     const totalPrice =
-      selectedDepartFlight.final_price + (selectedReturnFlight?.final_price || 0)
+      (selectedDepartFlight.final_price + (selectedReturnFlight?.final_price || 0)) * passengers
 
     const checkoutSelection = {
       departFlight: selectedDepartFlight,
@@ -231,11 +288,29 @@ export default function FlightsPage() {
     })
 
     if (selectedReturnFlight) params.set("returnId", String(selectedReturnFlight.id))
-    router.push(`/checkout?${params.toString()}`)
+
+    const go = () => router.push(`/checkout?${params.toString()}`)
+
+    // Native View Transitions API — real cross-page slide/fade, no library.
+    // Falls back to a plain navigation on browsers that don't support it
+    // (Safari/Firefox as of this writing), so nothing breaks either way.
+    setNavigating(true)
+    if (typeof (document as any).startViewTransition === "function") {
+      ;(document as any).startViewTransition(() => {
+        go()
+      })
+    } else {
+      setTimeout(go, 180)
+    }
   }
 
+  const stickyTotal = selectedDepartFlight
+    ? (selectedDepartFlight.final_price + (selectedReturnFlight?.final_price || 0)) * passengers
+    : 0
+  const displayedStickyTotal = useCountUp(stickyTotal)
+
   return (
-    <div className="relative min-h-screen text-white overflow-hidden">
+    <div className={`relative min-h-screen text-white overflow-hidden page-enter ${mounted ? "is-mounted" : ""}`}>
 
       {/* BACKGROUND — swapped the cool blue wash for the same warm dark
           navy + amber/cyan ambient glow used on every other page, so this
@@ -261,7 +336,7 @@ export default function FlightsPage() {
 
         {/* TOP BAR */}
         <div className="max-w-7xl mx-auto px-6 pt-24 pb-6">
-          <div className="relative bg-gradient-to-r from-[#0D1A2C] via-[#0B1729] to-[#0D1A2C] border border-white/[0.08] rounded-2xl px-10 py-6 ticket-edge overflow-hidden">
+          <div className="topbar-enter relative bg-gradient-to-r from-[#0D1A2C] via-[#0B1729] to-[#0D1A2C] border border-white/[0.08] rounded-2xl px-10 py-6 ticket-edge overflow-hidden">
             <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-blue-400 via-amber-400 to-amber-300" />
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div className="flex items-center gap-10 flex-wrap">
@@ -275,7 +350,11 @@ export default function FlightsPage() {
                     <p className="text-xs text-slate-500">From</p>
                     <p className="font-display text-4xl font-extrabold">{origin}</p>
                   </div>
-                  <div className="w-14 h-14 flex items-center justify-center rounded-full bg-amber-400/10 border border-amber-400/20 text-amber-300">⇄</div>
+                  <button
+                    onClick={() => setSwapSpin((v) => !v)}
+                    aria-label="Route indicator"
+                    className={`swap-circle w-14 h-14 flex items-center justify-center rounded-full bg-amber-400/10 border border-amber-400/20 text-amber-300 transition-transform duration-500 ${swapSpin ? "rotate-180" : "rotate-0"}`}
+                  >⇄</button>
                   <div>
                     <p className="text-xs text-slate-500">To</p>
                     <p className="font-display text-4xl font-extrabold text-amber-300">{destination}</p>
@@ -306,7 +385,11 @@ export default function FlightsPage() {
 
               </div>
               <button onClick={() => router.push("/")}
-                className="px-5 py-2 rounded-full border border-amber-400/25 bg-amber-400/[0.06] text-amber-200 hover:bg-amber-400/[0.12] hover:border-amber-400/40 transition-colors">
+                onMouseDown={editRipple.spawn}
+                className="edit-search-btn relative overflow-hidden px-5 py-2 rounded-full border border-amber-400/25 bg-amber-400/[0.06] text-amber-200 hover:bg-amber-400/[0.12] hover:border-amber-400/40 hover:scale-105 hover:shadow-[0_0_20px_rgba(251,191,36,0.25)] transition-all duration-200">
+                {editRipple.ripples.map((rp) => (
+                  <span key={rp.id} className="ripple" style={{ left: rp.x, top: rp.y }} />
+                ))}
                 ✏️ Edit
               </button>
             </div>
@@ -318,7 +401,7 @@ export default function FlightsPage() {
 
           {/* FILTERS */}
           <div className="col-span-3 space-y-6">
-            <div className="fade-up relative bg-gradient-to-b from-[#0D1A2C] to-[#0A1424] p-6 rounded-2xl border border-white/[0.08] ticket-edge overflow-hidden">
+            <div className="filters-slide-in relative bg-gradient-to-b from-[#0D1A2C] to-[#0A1424] p-6 rounded-2xl border border-white/[0.08] ticket-edge overflow-hidden">
 
               <div className="flex justify-between items-start mb-6">
                 <div>
@@ -326,10 +409,10 @@ export default function FlightsPage() {
                   <p className="text-xs text-slate-500 mt-1">Refine your flight search</p>
                 </div>
                 <button
-                  onClick={() => { setSelectedStops(null); setMaxPrice(20000); setSelectedAirlines([]) }}
-                  className="flex items-center gap-1 text-sm text-cyan-300 hover:text-cyan-200 transition-colors"
+                  onClick={triggerReset}
+                  className={`reset-btn flex items-center gap-1 text-sm text-cyan-300 hover:text-cyan-200 transition-colors ${resetShake ? "reset-shake" : ""}`}
                 >
-                  <span>↻</span> Reset
+                  <span className={resetShake ? "reset-spin" : ""}>↻</span> Reset
                 </button>
               </div>
 
@@ -515,10 +598,10 @@ export default function FlightsPage() {
                   disabled={!card.flight}
                   onClick={() => setSortBy(card.key)}
                   style={{ animationDelay: `${i * 60}ms` }}
-                  className={`fade-up relative text-left p-4 rounded-2xl border transition overflow-hidden
+                  className={`fade-up relative text-left p-4 rounded-2xl border transition-all duration-200 overflow-hidden
                   ${sortBy === card.key
                     ? "bg-amber-400/[0.1] border-amber-400/50"
-                    : "bg-white/[0.03] border-white/10 hover:bg-white/5"}
+                    : "bg-white/[0.03] border-white/10 hover:bg-white/5 hover:border-amber-400/25 hover:shadow-[0_0_18px_rgba(251,191,36,0.1)]"}
                   ${!card.flight ? "opacity-40 cursor-not-allowed" : ""}`}
                 >
                   {sortBy === card.key && (
@@ -544,35 +627,44 @@ export default function FlightsPage() {
             </div>
 
             {/* FLIGHT CARDS */}
-            {applySort(currentFiltered).map((flight, i) => {
-              const isThisSelected =
-                activeTab === "departure"
-                  ? selectedDepartFlight?.id === flight.id
-                  : selectedReturnFlight?.id === flight.id
+            {flightsLoading ? (
+              <div className="space-y-4">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="skeleton-card h-[220px]" style={{ animationDelay: `${i * 0.12}s` }} />
+                ))}
+              </div>
+            ) : (
+              applySort(currentFiltered).map((flight, i) => {
+                const isThisSelected =
+                  activeTab === "departure"
+                    ? selectedDepartFlight?.id === flight.id
+                    : selectedReturnFlight?.id === flight.id
 
-              return (
-                <div key={flight.id} className="fade-up" style={{ animationDelay: `${Math.min(i, 8) * 50}ms` }}>
-                  <FlightCard
-                    flight={{ ...flight, price: flight.final_price }}
-                    isSelected={isThisSelected}
-                    onSelect={() => {
-                      if (activeTab === "departure") {
-                        setSelectedDepartFlight(flight)
-                        if (mode === "roundtrip") switchTab("return")
-                      } else {
-                        setSelectedReturnFlight(flight)
-                      }
-                    }}
-                  />
-                </div>
-              )
-            })}
+                return (
+                  <div key={flight.id} className="fade-up" style={{ animationDelay: `${Math.min(i, 8) * 50}ms` }}>
+                    <FlightCard
+                      flight={{ ...flight, price: flight.final_price, passengers }}
+                      isSelected={isThisSelected}
+                      isCheapest={!!cheapestFlight && cheapestFlight.id === flight.id}
+                      onSelect={() => {
+                        if (activeTab === "departure") {
+                          setSelectedDepartFlight(flight)
+                          if (mode === "roundtrip") switchTab("return")
+                        } else {
+                          setSelectedReturnFlight(flight)
+                        }
+                      }}
+                    />
+                  </div>
+                )
+              })
+            )}
 
-            {currentFiltered.length === 0 && (
+            {!flightsLoading && currentFiltered.length === 0 && (
               <div className="text-center text-slate-400 text-sm py-10 border border-white/10 rounded-2xl bg-white/[0.02]">
                 No flights match your current filters.{" "}
                 <button
-                  onClick={() => { setSelectedStops(null); setMaxPrice(20000); setSelectedAirlines([]) }}
+                  onClick={triggerReset}
                   className="text-cyan-300 hover:underline"
                 >
                   Reset filters
@@ -582,7 +674,7 @@ export default function FlightsPage() {
           </div>
 
           {/* RIGHT — Price Insight */}
-          <div className="col-span-3">
+          <div className="col-span-3 insights-fade-in">
             <PriceInsight flights={currentFiltered} />
           </div>
 
@@ -590,7 +682,7 @@ export default function FlightsPage() {
 
         {/* STICKY BOTTOM BAR */}
         {selectedDepartFlight && (
-          <div className="fixed bottom-0 left-0 w-full bg-[#060B14]/90 backdrop-blur-xl border-t border-white/10 px-6 py-4 z-50">
+          <div className="bottombar-enter fixed bottom-0 left-0 w-full bg-[#060B14]/90 backdrop-blur-xl border-t border-white/10 px-6 py-4 z-50">
             <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-blue-400 via-amber-400 to-amber-300" />
             <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-4">
               <div className="flex flex-col">
@@ -608,24 +700,35 @@ export default function FlightsPage() {
                 <p className="text-xs text-slate-400">
                   {mode === "roundtrip" && !selectedReturnFlight ? "Total (departure only)" : "Total Price"}
                 </p>
-                <p className="font-display text-2xl font-extrabold text-amber-300">
-                  ₹{(selectedDepartFlight.final_price + (selectedReturnFlight?.final_price || 0)).toLocaleString("en-IN")}
+                <p className="font-display text-2xl font-extrabold text-amber-300 total-pop" key={selectedDepartFlight.id + (selectedReturnFlight?.id || "")}>
+                  ₹{displayedStickyTotal.toLocaleString("en-IN")}
                 </p>
               </div>
               <button
                 disabled={mode === "roundtrip" && !selectedReturnFlight}
                 onClick={handleContinue}
-                className={`px-6 py-3 rounded-full font-semibold
+                onMouseDown={continueRipple.spawn}
+                className={`group relative overflow-hidden px-6 py-3 rounded-full font-semibold
                 ${mode === "roundtrip" && !selectedReturnFlight
                   ? "bg-white/[0.06] text-slate-500 cursor-not-allowed"
                   : "pill-cta hover:scale-[1.03]"}
                 transition`}
               >
-                Continue →
+                {continueRipple.ripples.map((rp) => (
+                  <span key={rp.id} className="ripple" style={{ left: rp.x, top: rp.y }} />
+                ))}
+                <span className="relative inline-flex items-center gap-1.5">
+                  Continue <span className="inline-block transition-transform duration-200 group-hover:translate-x-1">→</span>
+                </span>
               </button>
             </div>
           </div>
         )}
+
+        {/* subtle dim while the next page transitions in */}
+        <div className={`fixed inset-0 bg-black pointer-events-none z-[60] transition-opacity duration-300 ${navigating ? "opacity-30" : "opacity-0"}`} />
+
+        <NavBot />
 
       </div>
 
@@ -699,9 +802,9 @@ export default function FlightsPage() {
 
         .filter-row:active { transform: scale(0.99); }
 
-        /* Staggered fade-up entrance — used on the filters panel, summary
-           cards, and flight card list so the page feels alive on load
-           instead of everything snapping in at once. */
+        /* Staggered fade-up entrance — used on the summary cards and
+           flight card list so the page feels alive on load instead of
+           everything snapping in at once. */
         @keyframes fadeUpIn {
           from { opacity: 0; transform: translateY(14px); }
           to   { opacity: 1; transform: translateY(0); }
@@ -710,8 +813,136 @@ export default function FlightsPage() {
           animation: fadeUpIn 0.5s ease-out both;
         }
 
+        /* ── Page-level entrance — fade + slight zoom ── */
+        /* Opacity only — no transform here. A transform on the root
+           wrapper (even a settled scale(1)) creates a new CSS containing
+           block, which silently breaks position:fixed for every
+           descendant — that's why the sticky price bar and the flight
+           details modal were rendering relative to this div instead of
+           the actual viewport. */
+        .page-enter { opacity: 0; transition: opacity 0.5s ease-out; }
+        .page-enter.is-mounted { opacity: 1; }
+
+        /* ── Top search-summary bar — slide down on load ── */
+        @keyframes topbarSlideDown {
+          from { opacity: 0; transform: translateY(-16px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .topbar-enter { animation: topbarSlideDown 0.55s ease-out 0.05s both; }
+
+        /* ── Filters panel — slides in from the left ── */
+        @keyframes slideInLeft {
+          from { opacity: 0; transform: translateX(-24px); }
+          to   { opacity: 1; transform: translateX(0); }
+        }
+        .filters-slide-in { animation: slideInLeft 0.55s ease-out 0.1s both; }
+
+        /* ── Right insights panel — fade + slight scale ── */
+        @keyframes fadeScaleIn {
+          from { opacity: 0; transform: scale(0.95); }
+          to   { opacity: 1; transform: scale(1); }
+        }
+        .insights-fade-in { animation: fadeScaleIn 0.55s ease-out 0.2s both; }
+
+        /* ── Reset button — subtle shake + spin on click ── */
+        @keyframes resetShakeKf {
+          0%, 100% { transform: translateX(0); }
+          20% { transform: translateX(-3px); }
+          40% { transform: translateX(3px); }
+          60% { transform: translateX(-2px); }
+          80% { transform: translateX(2px); }
+        }
+        .reset-shake { animation: resetShakeKf 400ms ease-in-out; }
+        .reset-spin { display: inline-block; animation: spin 400ms linear; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Real click-position ripple ── */
+        .ripple {
+          position: absolute;
+          width: 12px; height: 12px;
+          border-radius: 50%;
+          background: rgba(255,255,255,0.5);
+          transform: translate(-50%, -50%) scale(0);
+          pointer-events: none;
+          animation: rippleExpand 650ms ease-out forwards;
+        }
+        @keyframes rippleExpand {
+          to { transform: translate(-50%, -50%) scale(16); opacity: 0; }
+        }
+
+        /* ── Sticky bottom bar — slides up when a flight is selected ── */
+        @keyframes bottombarSlideUp {
+          from { opacity: 0; transform: translateY(100%); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .bottombar-enter { animation: bottombarSlideUp 0.4s cubic-bezier(0.22,1,0.36,1) both; }
+
+        /* ── Total price — scale-pop emphasis whenever it changes ── */
+        @keyframes totalPop {
+          0% { transform: scale(0.85); opacity: 0.6; }
+          60% { transform: scale(1.08); opacity: 1; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        .total-pop { animation: totalPop 380ms cubic-bezier(0.34,1.56,0.64,1); }
+
+        /* ── Skeleton shimmer loading cards (replaces the misleading
+           "No flights match" flash that used to show during the initial
+           fetch, before any data had arrived) ── */
+        .skeleton-card {
+          background: linear-gradient(120deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.07) 50%, rgba(255,255,255,0.03) 100%);
+          background-size: 200% 100%;
+          animation: skeletonShimmer 1.6s ease-in-out infinite;
+          border-radius: 28px;
+        }
+        @keyframes skeletonShimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+
+        /* ── Native cross-page View Transition (Chrome/Edge; other
+           browsers fall back to a plain navigation automatically) ── */
+        ::view-transition-old(root) {
+          animation: viewOutLeft 320ms cubic-bezier(0.4,0,0.2,1) both;
+        }
+        ::view-transition-new(root) {
+          animation: viewInRight 380ms cubic-bezier(0.22,1,0.36,1) both;
+        }
+        @keyframes viewOutLeft { to { opacity: 0; transform: translateX(-3%); } }
+        @keyframes viewInRight { from { opacity: 0; transform: translateX(3%); } to { opacity: 1; transform: translateX(0); } }
+
         @media (prefers-reduced-motion: reduce) {
-          .fade-up, .custom-radio-dot, .custom-checkbox-tick { animation: none !important; transition: none !important; }
+          .fade-up, .custom-radio-dot, .custom-checkbox-tick,
+          .page-enter, .topbar-enter, .filters-slide-in, .insights-fade-in,
+          .reset-shake, .reset-spin, .ripple, .bottombar-enter, .total-pop,
+          .skeleton-card {
+            animation: none !important; transition: none !important;
+          }
+          .page-enter { opacity: 1; transform: none; }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+function NavBot() {
+  const [hovered, setHovered] = useState(false)
+  return (
+    <div className="fixed bottom-6 right-6 z-40 hidden md:block" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+      {hovered && (
+        <div className="absolute bottom-full right-0 mb-3 bg-[#0D1A2C] border border-white/10 rounded-xl px-4 py-2.5 text-xs text-slate-300 whitespace-nowrap shadow-lg navbot-tooltip">
+          Need help picking a flight?
+        </div>
+      )}
+      <button className={`w-14 h-14 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center text-2xl shadow-[0_8px_24px_rgba(34,211,238,0.25)] navbot-float ${hovered ? "navbot-bounce" : ""}`}
+        aria-label="Open NavBot assistant">🤖</button>
+      <style jsx>{`
+        @keyframes navbotFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+        .navbot-float { animation: navbotFloat 4s ease-in-out infinite; }
+        .navbot-bounce { animation: navbotFloat 0.6s ease-in-out infinite; transform: scale(1.05); }
+        @keyframes tooltipIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        .navbot-tooltip { animation: tooltipIn 180ms ease-out; }
+        @media (prefers-reduced-motion: reduce) {
+          .navbot-float, .navbot-bounce, .navbot-tooltip { animation: none !important; }
         }
       `}</style>
     </div>

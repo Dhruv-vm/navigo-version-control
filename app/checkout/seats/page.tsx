@@ -648,7 +648,10 @@ export default function SeatSelectionPage() {
         return
       }
 
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(selection))
+      sessionStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ ...selection, holdExpiresAt: data.holdExpiresAt, seatSelectionPrice: data.seatSelectionPrice ?? totalSeatPrice })
+      )
       router.push("/checkout/addons")
     } catch (err) {
       console.error("Failed to save seat selection:", err)

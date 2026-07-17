@@ -451,7 +451,7 @@ export default function PassengerDetailsPage() {
 
   const { departFlight, returnFlight } = selection
   const isRoundTrip = !!returnFlight
-  const baseFare = departFlight.final_price + (returnFlight?.final_price || 0)
+  const baseFare = (departFlight.final_price + (returnFlight?.final_price || 0)) * passengers.length
   const taxesAndFees = Math.round(baseFare * 0.19)
   const total = baseFare + taxesAndFees
 
@@ -769,7 +769,7 @@ function PassengerCard({ index, passenger, isExpanded, errors, canRemove, entran
                 <label className="block text-xs text-slate-500 mb-1.5">Use a saved passenger (optional)</label>
                 <UiSelect
                   value=""
-                  onValueChange={(id : string) => {
+                  onValueChange={(id) => {
                     const sp = savedPassengers.find((s) => s.id === id)
                     if (sp) onUseSaved(sp)
                   }}

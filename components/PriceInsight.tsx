@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 type PriceInsightFlight = {
   final_price: number
@@ -44,7 +44,7 @@ export default function PriceInsight({
         <h3 className="font-display text-base font-bold mb-3">Price Insight</h3>
 
         <span
-          className="inline-block text-sm font-medium px-3 py-1 rounded-full mb-3"
+          className={`inline-block text-sm font-medium px-3 py-1 rounded-full mb-3 ${label === "Low" ? "insight-badge-pulse" : ""}`}
           style={{ backgroundColor: `${labelColor}22`, color: labelColor, border: `1px solid ${labelColor}40` }}
         >
           {label}
@@ -80,6 +80,17 @@ export default function PriceInsight({
           <p className="text-xs text-cyan-300/70">🤖 AI assistant coming soon</p>
         </div>
       </div>
+
+      <style jsx>{`
+        @keyframes insightBadgePulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(74,222,128,0.25); }
+          50% { box-shadow: 0 0 0 6px rgba(74,222,128,0); }
+        }
+        .insight-badge-pulse { animation: insightBadgePulse 2.2s ease-out infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .insight-badge-pulse { animation: none !important; }
+        }
+      `}</style>
     </div>
   )
 }
@@ -105,6 +116,16 @@ function ScoreGauge({ score, color }: { score: number; color: string }) {
 
   const largeArc = angle > 180 ? 1 : 0
 
+  // Draws the value arc in on mount/whenever the score changes, using the
+  // pathLength trick so the animation works regardless of actual arc
+  // geometry — no extra library needed.
+  const [drawn, setDrawn] = useState(false)
+  useEffect(() => {
+    setDrawn(false)
+    const t = requestAnimationFrame(() => requestAnimationFrame(() => setDrawn(true)))
+    return () => cancelAnimationFrame(t)
+  }, [score])
+
   return (
     <div className="relative w-[88px] h-[60px] shrink-0">
       <svg viewBox="0 0 88 50" className="w-full h-full overflow-visible">
@@ -116,13 +137,17 @@ function ScoreGauge({ score, color }: { score: number; color: string }) {
           strokeWidth={6}
           strokeLinecap="round"
         />
-        {/* value arc */}
+        {/* value arc — needle-style draw-in */}
         <path
           d={`M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}`}
           fill="none"
           stroke={color}
           strokeWidth={6}
           strokeLinecap="round"
+          pathLength={100}
+          strokeDasharray={100}
+          strokeDashoffset={drawn ? 0 : 100}
+          style={{ transition: "stroke-dashoffset 900ms cubic-bezier(0.22,1,0.36,1)" }}
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center pt-2">
@@ -159,6 +184,15 @@ function TrendChart({ points }: { points: { label: string; price: number }[] }) 
 
   const areaPath = `${linePath} L ${coords[coords.length - 1].x} ${height} L ${coords[0].x} ${height} Z`
 
+  // Line draws in on mount; dots pop in sequentially once the line has
+  // mostly finished drawing.
+  const [drawn, setDrawn] = useState(false)
+  useEffect(() => {
+    setDrawn(false)
+    const t = requestAnimationFrame(() => requestAnimationFrame(() => setDrawn(true)))
+    return () => cancelAnimationFrame(t)
+  }, [points.map((p) => p.price).join(",")])
+
   return (
     <svg viewBox={`0 0 ${width} ${height + 24}`} className="w-full h-auto">
       <defs>
@@ -168,7 +202,11 @@ function TrendChart({ points }: { points: { label: string; price: number }[] }) 
         </linearGradient>
       </defs>
 
-      <path d={areaPath} fill="url(#priceTrendFill)" />
+      <path
+        d={areaPath}
+        fill="url(#priceTrendFill)"
+        style={{ opacity: drawn ? 1 : 0, transition: "opacity 500ms ease-out 500ms" }}
+      />
       <path
         d={linePath}
         fill="none"
@@ -176,6 +214,10 @@ function TrendChart({ points }: { points: { label: string; price: number }[] }) 
         strokeWidth={2}
         strokeLinecap="round"
         strokeLinejoin="round"
+        pathLength={100}
+        strokeDasharray={100}
+        strokeDashoffset={drawn ? 0 : 100}
+        style={{ transition: "stroke-dashoffset 700ms cubic-bezier(0.22,1,0.36,1)" }}
       />
 
       {coords.map((c, i) => (
@@ -185,6 +227,12 @@ function TrendChart({ points }: { points: { label: string; price: number }[] }) 
           cy={c.y}
           r={i === coords.length - 1 ? 4 : 3}
           fill={i === coords.length - 1 ? "#facc15" : "#fde68a"}
+          style={{
+            transformOrigin: `${c.x}px ${c.y}px`,
+            transform: drawn ? "scale(1)" : "scale(0)",
+            opacity: drawn ? 1 : 0,
+            transition: `transform 300ms cubic-bezier(0.34,1.56,0.64,1) ${500 + i * 90}ms, opacity 200ms ease-out ${500 + i * 90}ms`,
+          }}
         />
       ))}
 
@@ -196,6 +244,7 @@ function TrendChart({ points }: { points: { label: string; price: number }[] }) 
           textAnchor="middle"
           fontSize="9"
           fill="#9ca3af"
+          style={{ opacity: drawn ? 1 : 0, transition: `opacity 250ms ease-out ${500 + i * 90}ms` }}
         >
           {c.label}
         </text>
