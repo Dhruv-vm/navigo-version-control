@@ -31,13 +31,10 @@ export function PaymentCard({
     return () => mq.removeEventListener("change", handler)
   }, [])
 
-  // Hover tilt — raw pointer position -> spring-smoothed rotation.
   const tiltX = useMotionValue(0)
   const tiltY = useMotionValue(0)
   const springX = useSpring(tiltX, { stiffness: 150, damping: 18 })
   const springY = useSpring(tiltY, { stiffness: 150, damping: 18 })
-  // Small opposite-direction offset applied to inner elements (chip, logo)
-  // for a subtle parallax "depth" read, separate from the tilt itself.
   const parallaxX = useTransform(springY, [-8, 8], [-4, 4])
   const parallaxY = useTransform(springX, [-8, 8], [4, -4])
 
@@ -54,9 +51,24 @@ export function PaymentCard({
     tiltY.set(0)
   }
 
+  // ✅ FIXED: the previous version split the display string into
+  // individual characters and rendered every space as TWO non-breaking
+  // spaces. 16 digits + tripled-width gaps + tracking overflowed the
+  // card's width, so only ~9 characters were visible before the card's
+  // own rounded corners clipped the rest. Now spacing between the four
+  // groups comes purely from a flex `gap`, never from a rendered
+  // character — nothing to double.
   const displayNumber = cardNumberDisplay(numberDigits, brand)
+  const numberGroups = displayNumber.split(" ")
+
   const displayName = name.trim() ? name.toUpperCase() : "YOUR NAME"
   const displayExpiry = expiry || "MM/YY"
+  const cvvLength = brand === "amex" ? 4 : 3
+
+  const faceStyle: React.CSSProperties = {
+    backfaceVisibility: "hidden",
+    WebkitBackfaceVisibility: "hidden",
+  }
 
   return (
     <div
@@ -71,23 +83,23 @@ export function PaymentCard({
           rotateX: reducedMotion ? 0 : springX,
           rotateY: reducedMotion ? 0 : springY,
           transformStyle: "preserve-3d",
+          WebkitTransformStyle: "preserve-3d",
         }}
         className="relative"
       >
         <motion.div
           animate={{ rotateY: isFlipped ? 180 : 0 }}
           transition={{ type: "spring", stiffness: 220, damping: 24 }}
-          style={{ transformStyle: "preserve-3d" }}
+          style={{ transformStyle: "preserve-3d", WebkitTransformStyle: "preserve-3d" }}
           className="relative aspect-[1.586/1] w-full"
         >
           {/* ── FRONT ─────────────────────────────────────────────── */}
           <div
-            style={{ backfaceVisibility: "hidden" }}
+            style={faceStyle}
             className="absolute inset-0 rounded-2xl overflow-hidden shadow-[0_30px_80px_rgba(0,0,0,0.55)] border border-[#D4AF37]/25"
           >
             <div className="absolute inset-0 bg-gradient-to-br from-[#101B2C] via-[#0B1729] to-[#060B14]" />
             <div className="absolute inset-0 bg-gradient-to-br from-[#D4AF37]/[0.10] via-transparent to-transparent" />
-            {/* fine guilloché-style linework, purely decorative */}
             <svg className="absolute inset-0 w-full h-full opacity-[0.08]" preserveAspectRatio="none" viewBox="0 0 420 265">
               {Array.from({ length: 14 }).map((_, i) => (
                 <path
@@ -103,9 +115,12 @@ export function PaymentCard({
 
             <div className="relative h-full flex flex-col justify-between p-6">
               <div className="flex items-start justify-between">
-                <div>
-                  <p className="font-display text-[15px] font-extrabold tracking-[0.08em] text-[#E8C766]">NAVIGO ELITE</p>
-                  <p className="text-[9px] tracking-[0.2em] text-slate-400 mt-0.5">PREMIUM MEMBER</p>
+                <div className="flex items-center gap-2">
+                  <img src="/logo.png" alt="" className="w-5 h-5 object-contain shrink-0" />
+                  <div>
+                    <p className="font-display text-[15px] font-extrabold tracking-[0.08em] text-[#E8C766] leading-none">NAVIGO ELITE</p>
+                    <p className="text-[9px] tracking-[0.2em] text-slate-400 mt-1">PREMIUM MEMBER</p>
+                  </div>
                 </div>
                 <motion.div style={{ x: parallaxX, y: parallaxY }}>
                   <BrandMark brand={brand} />
@@ -120,20 +135,24 @@ export function PaymentCard({
               </motion.div>
 
               <div>
-                <div className="flex gap-[3px] font-mono text-[19px] sm:text-[21px] tracking-[0.08em] text-white h-7 items-center overflow-hidden">
-                  {displayNumber.split("").map((char, i) => (
-                    <AnimatePresence key={i} mode="popLayout" initial={false}>
-                      <motion.span
-                        key={`${i}-${char}`}
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -8 }}
-                        transition={{ duration: 0.16 }}
-                        className={char === "•" ? "text-white/25" : "text-white"}
-                      >
-                        {char === " " ? "\u00A0\u00A0" : char}
-                      </motion.span>
-                    </AnimatePresence>
+                <div className="flex items-center gap-x-2.5 font-mono text-[15px] sm:text-[17px] tracking-[0.03em] text-white h-6 whitespace-nowrap overflow-hidden">
+                  {numberGroups.map((group, gi) => (
+                    <div key={gi} className="flex">
+                      {group.split("").map((char, ci) => (
+                        <AnimatePresence key={`${gi}-${ci}`} mode="popLayout" initial={false}>
+                          <motion.span
+                            key={`${gi}-${ci}-${char}`}
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            transition={{ duration: 0.15 }}
+                            className={char === "•" ? "text-white/25" : "text-white"}
+                          >
+                            {char}
+                          </motion.span>
+                        </AnimatePresence>
+                      ))}
+                    </div>
                   ))}
                 </div>
 
@@ -175,22 +194,26 @@ export function PaymentCard({
 
           {/* ── BACK ──────────────────────────────────────────────── */}
           <div
-            style={{ backfaceVisibility: "hidden", transform: "rotateY(180deg)" }}
+            style={{ ...faceStyle, transform: "rotateY(180deg)" }}
             className="absolute inset-0 rounded-2xl overflow-hidden shadow-[0_30px_80px_rgba(0,0,0,0.55)] border border-[#D4AF37]/25"
           >
             <div className="absolute inset-0 bg-gradient-to-br from-[#101B2C] via-[#0B1729] to-[#060B14]" />
-            <div className="w-full h-11 bg-[#050810] mt-6" />
 
-            <div className="px-6 mt-6">
-              <div className="h-9 bg-[#EFE9D8] rounded-[3px] flex items-center justify-between px-3">
+            {/* magnetic stripe — lightened so it reads as a distinct
+                element against the navy card body instead of nearly
+                disappearing into it */}
+            <div className="w-full h-11 bg-[#1A2233] mt-6" />
+
+            <div className="px-6 mt-7">
+              <div className="h-10 bg-[#EFE9D8] rounded-[4px] flex items-center justify-between px-3 shadow-[0_2px_10px_rgba(0,0,0,0.25)]">
                 <span className="font-display italic text-[11px] text-[#5b5646] tracking-wide">Authorized Signature</span>
-                <div className="bg-white rounded px-2.5 py-1 shadow-sm">
-                  <span className="font-mono text-[13px] tracking-[0.2em] text-[#0A1424]">
-                    {cvv.padEnd(brand === "amex" ? 4 : 3, "•")}
+                <div className="bg-white rounded px-3 py-1.5 shadow-sm min-w-[64px] text-center">
+                  <span className="font-mono text-[15px] tracking-[0.25em] text-[#0A1424]">
+                    {cvv.padEnd(cvvLength, "•")}
                   </span>
                 </div>
               </div>
-              <p className="text-[8px] text-slate-500 mt-2 leading-relaxed max-w-[260px]">
+              <p className="text-[8px] text-slate-500 mt-2.5 leading-relaxed max-w-[260px]">
                 This card is property of Navigo Airways. Sandbox card — for
                 testing only, not a real financial instrument.
               </p>
@@ -199,7 +222,8 @@ export function PaymentCard({
             <div className="absolute bottom-5 right-6 flex items-center gap-2">
               <BrandMark brand={brand} compact />
             </div>
-            <div className="absolute bottom-5 left-6">
+            <div className="absolute bottom-5 left-6 flex items-center gap-1.5">
+              <img src="/logo.png" alt="" className="w-3.5 h-3.5 object-contain opacity-70" />
               <p className="font-display text-[11px] font-extrabold tracking-[0.08em] text-[#E8C766]/70">NAVIGO ELITE</p>
             </div>
           </div>
@@ -208,12 +232,6 @@ export function PaymentCard({
     </div>
   )
 }
-
-// ---------------------------------------------------------------------------
-// Brand marks — deliberately simplified/restyled wordmarks in the card's
-// own gold/cream palette rather than exact trademarked logo reproductions
-// (this is a fictional sandbox card, not real card-network branding).
-// ---------------------------------------------------------------------------
 
 function BrandMark({ brand, compact = false }: { brand: CardBrand; compact?: boolean }) {
   const size = compact ? "scale-75 origin-right" : ""

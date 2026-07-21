@@ -346,3 +346,48 @@ export async function POST(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
+// ── APPEND THIS to the bottom of app/api/bookings/[bookingId]/seats/route.ts ──
+// Uses the same `supabase` and `NextResponse` imports already at the top of
+// that file — nothing new to import.
+//
+// GET /api/bookings/[bookingId]/seats
+//
+// Returns the real seat assignments for a booking, keyed by
+// (flightInstanceId, passengerId) on the client side. This is what the
+// boarding pass needed and didn't have — previously the seat field always
+// showed "TBA" because nothing ever fetched it back out of `booking_seats`
+// after the seats page saved it.
+
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ bookingId: string }> }
+) {
+  try {
+    const { bookingId } = await params
+    if (!bookingId) {
+      return NextResponse.json({ error: "Missing booking id" }, { status: 400 })
+    }
+
+    const { data, error } = await supabase
+      .from("booking_seats")
+      .select("flight_instance_id, passenger_id, seat_number, cabin_class")
+      .eq("booking_id", bookingId)
+
+    if (error) {
+      console.error("SEATS GET (by booking) ERROR:", error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json({
+      seats: (data || []).map((row) => ({
+        flightInstanceId: row.flight_instance_id,
+        passengerId: row.passenger_id,
+        seatNumber: row.seat_number,
+        cabinClass: row.cabin_class,
+      })),
+    })
+  } catch (err) {
+    console.error("SEATS GET (by booking) SERVER ERROR:", err)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}

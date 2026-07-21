@@ -9,6 +9,26 @@ import { getUserFromRequest } from "@/lib/auth"
 // the caller's user_id, and updates are scoped to bookings that user
 // actually owns, so one user can never edit or overwrite another user's
 // draft by guessing a bookingId.
+//
+// ✅ FIX (passengers/response): this route used to insert `passengerRows`
+// and then just discard them — the response was only `{ bookingId }`. The
+// Passengers page reads the response as `data.passengers` and stores it in
+// sessionStorage under `savedPassengers`, which the Payment page later uses
+// to generate one boarding pass per passenger. Now selects the inserted
+// rows back and includes them in the response.
+//
+// ✅ FIX (stale bookingId crash): when the client sends a `bookingId` for a
+// booking that's no longer `status = 'draft'` (e.g. it was already paid and
+// confirmed in an earlier session, and a stale id is still sitting in
+// sessionStorage), the update below matches zero rows, and the code
+// correctly decides to create a fresh booking instead — resetting
+// `bookingId` to `undefined`. But the passenger-delete step right after it
+// used to run unconditionally with that now-`undefined` id, which
+// Supabase-js serializes as the literal string "undefined", which Postgres
+// then rejects with "invalid input syntax for type uuid: undefined" — a
+// 500 before the "create a new booking" branch was ever reached. The
+// delete now only runs when the update actually succeeded against a real,
+// existing booking.
 
 type PassengerPayload = {
   type: string
@@ -52,15 +72,6 @@ export async function POST(req: Request) {
     if (!body.departFlightInstanceId || !Array.isArray(body.passengers) || body.passengers.length === 0) {
       return NextResponse.json({ error: "Missing required booking fields" }, { status: 400 })
     }
-    // TEMP DEBUG — remove after
-    const { data: debugUser, error: debugUserError } = await supabase
-      .from("users")
-      .select("id")
-      .eq("id", user.userId)
-      .single()
-
-    console.log("🔍 DEBUG — does this Supabase client see the user?", { debugUser, debugUserError })
-    console.log("🔍 DEBUG — Supabase URL in use:", process.env.NEXT_PUBLIC_SUPABASE_URL)
 
     const primaryContact = body.passengers.find((p) => p.isPrimaryContact)
 
@@ -97,20 +108,29 @@ export async function POST(req: Request) {
       }
 
       if (!updated || updated.length === 0) {
-        // Either it doesn't exist, isn't theirs, or isn't a draft anymore.
-        return NextResponse.json({ error: "Booking not found" }, { status: 404 })
-      }
+        // Stale, not-ours, or already-confirmed booking id (the exact
+        // "booked once, can't book again" scenario) — fall through to
+        // creating a brand new draft below instead of erroring. bookingId
+        // is reset here specifically so the delete step is skipped; it
+        // only makes sense for a booking we just successfully updated.
+        console.warn(
+          `Draft booking ${bookingId} not found/owned/draft for user ${user.userId}. Creating a new draft instead.`
+        )
+        bookingId = undefined
+      } else {
+        const { error: deleteError } = await supabase
+          .from("booking_passengers")
+          .delete()
+          .eq("booking_id", bookingId)
 
-      const { error: deleteError } = await supabase
-        .from("booking_passengers")
-        .delete()
-        .eq("booking_id", bookingId)
-
-      if (deleteError) {
-        console.error("PASSENGER DELETE ERROR:", deleteError)
-        return NextResponse.json({ error: deleteError.message }, { status: 500 })
+        if (deleteError) {
+          console.error("PASSENGER DELETE ERROR:", deleteError)
+          return NextResponse.json({ error: deleteError.message }, { status: 500 })
+        }
       }
-    } else {
+    }
+
+    if (!bookingId) {
       const { data: inserted, error: insertError } = await supabase
         .from("bookings")
         .insert(bookingRow)
@@ -144,9 +164,13 @@ export async function POST(req: Request) {
       is_primary_contact: p.isPrimaryContact,
     }))
 
-    const { error: passengerError } = await supabase
+    // ✅ .select() so we get the inserted rows (with their generated ids)
+    // back, instead of just performing a blind insert. This is what the
+    // frontend needs for savedPassengers → boarding pass generation.
+    const { data: insertedPassengers, error: passengerError } = await supabase
       .from("booking_passengers")
       .insert(passengerRows)
+      .select("id, passenger_index, passenger_type, title, first_name, middle_name, last_name, date_of_birth, gender, nationality, frequent_flyer, is_primary_contact")
 
     if (passengerError) {
       console.error("PASSENGER INSERT ERROR:", passengerError)
@@ -180,7 +204,13 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json({ bookingId })
+    // Keep insertion order stable (passenger_index) regardless of what
+    // order Supabase happens to return rows in.
+    const orderedPassengers = (insertedPassengers || []).sort(
+      (a, b) => (a.passenger_index ?? 0) - (b.passenger_index ?? 0)
+    )
+
+    return NextResponse.json({ bookingId, passengers: orderedPassengers })
   } catch (err) {
     console.error("BOOKINGS SERVER ERROR:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

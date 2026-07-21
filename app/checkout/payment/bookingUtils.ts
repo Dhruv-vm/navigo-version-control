@@ -14,6 +14,22 @@ export function generatePnr(): string {
   return out
 }
 
+// Derives a flight number purely from data already in hand — no new DB
+// column needed. First 3 letters of the airline name + 4 characters from
+// the flight instance's own UUID, e.g. "Air India" + "77bd340a-93b4-..."
+// -> "AIR77BD". Deterministic per flight instance (same instance always
+// produces the same number), distinct per airline, no fetch required.
+export function deriveFlightNumber(airline: string, flightInstanceId: string): string {
+  const prefix = airline
+    .replace(/[^a-zA-Z]/g, "")
+    .toUpperCase()
+    .slice(0, 3)
+    .padEnd(3, "X")
+  const suffix = flightInstanceId.replace(/-/g, "").toUpperCase().slice(0, 4)
+  return `${prefix}${suffix}`
+}
+
+
 // ---------------------------------------------------------------------------
 // Sandbox payment outcome — this is the "not every payment must succeed"
 // simulation. Real Razorpay test-mode card numbers have documented

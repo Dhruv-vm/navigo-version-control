@@ -769,7 +769,7 @@ function PassengerCard({ index, passenger, isExpanded, errors, canRemove, entran
                 <label className="block text-xs text-slate-500 mb-1.5">Use a saved passenger (optional)</label>
                 <UiSelect
                   value=""
-                  onValueChange={(id) => {
+                  onValueChange={(id : string) => {
                     const sp = savedPassengers.find((s) => s.id === id)
                     if (sp) onUseSaved(sp)
                   }}

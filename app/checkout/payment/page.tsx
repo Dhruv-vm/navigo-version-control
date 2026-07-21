@@ -7,7 +7,7 @@ import Navbar from "@/components/navbar"
 import { PaymentCard } from "./PaymentCard"
 import { RazorpaySandboxModal } from "./RazorpaySandboxModal"
 import { UpiPanel } from "./UpiPanel"
-import { BoardingPass } from "./BoardingPass"
+import { BoardingPassDeck, type BoardingPassData } from "./BoardingPassDeck"
 import {
   detectCardBrand,
   sanitizeCardNumberInput,
@@ -16,14 +16,7 @@ import {
   validateCardForm,
   type CardFieldErrors,
 } from "./cardUtils"
-import { formatINR, generatePnr } from "./bookingUtils"
-
-// ---------------------------------------------------------------------------
-// Same session-storage shape the seats/add-ons pages already write to —
-// this page just reads the final state of it. `addons` / `addonsTotal` come
-// from the add-ons page; `savedPassengers` (if present) from passenger
-// details.
-// ---------------------------------------------------------------------------
+import { formatINR, deriveFlightNumber } from "./bookingUtils"
 
 type StoredFlight = {
   id: string
@@ -56,11 +49,43 @@ type CheckoutSelection = {
   seatSelectionPrice?: number
   addons?: StoredAddon[]
   addonsTotal?: number
-  savedPassengers?: { first_name?: string; firstName?: string; last_name?: string; lastName?: string }[]
+  savedPassengers?: { id?: string; first_name?: string; firstName?: string; last_name?: string; lastName?: string }[]
 }
 
 const STORAGE_KEY = "navigo:checkoutSelection"
 const HOLD_MINUTES = 15
+
+// ✅ FIX: these are the same namespaced keys app/checkout/passengers/page.tsx
+// writes a completed booking's id and passenger draft into. They were never
+// cleared anywhere, so after a successful payment, the NEXT booking attempt
+// by the same user would silently pick the old (now-confirmed) bookingId
+// back up on the Passengers page and try to update it — which the bookings
+// API correctly rejects (status is no longer "draft"), surfacing as
+// "Booking not found" (POST /api/bookings 404) and making it look like the
+// user can't book again.
+const PAX_DRAFT_BASE_KEY = "navigo:passengerDraft"
+const BOOKING_ID_BASE_KEY = "navigo:bookingId"
+
+function decodeUserIdFromToken(token: string): string | null {
+  try {
+    const payload = token.split(".")[1]
+    const decoded = JSON.parse(atob(payload))
+    return decoded?.userId ?? null
+  } catch {
+    return null
+  }
+}
+
+function clearStaleBookingSession() {
+  try {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null
+    const namespace = token ? decodeUserIdFromToken(token) || "guest" : "guest"
+    sessionStorage.removeItem(`${BOOKING_ID_BASE_KEY}:${namespace}`)
+    sessionStorage.removeItem(`${PAX_DRAFT_BASE_KEY}:${namespace}`)
+  } catch (err) {
+    console.error("Failed to clear stale booking session keys:", err)
+  }
+}
 
 const steps = [
   { id: 1, label: "Search" },
@@ -110,7 +135,6 @@ export default function PaymentPage() {
 
   const [method, setMethod] = useState<"card" | "upi">("card")
 
-  // ── Card form state ─────────────────────────────────────────────────
   const [name, setName] = useState("")
   const [numberDigits, setNumberDigits] = useState("")
   const [expiry, setExpiry] = useState("")
@@ -121,20 +145,18 @@ export default function PaymentPage() {
 
   const brand = useMemo(() => detectCardBrand(numberDigits), [numberDigits])
 
-  // ── Gateway / outcome state ─────────────────────────────────────────
   const [gatewayOpen, setGatewayOpen] = useState(false)
   const [lastFailure, setLastFailure] = useState<string | null>(null)
   const [paid, setPaid] = useState(false)
   const [pnr, setPnr] = useState<string | null>(null)
-  // Distinct from `lastFailure` (a card decline) — this is "the sandbox
-  // gateway said yes, but writing that to Supabase failed," which needs
-  // its own retry path rather than sending the traveler back through the
-  // card form again.
   const [confirming, setConfirming] = useState(false)
   const [confirmError, setConfirmError] = useState<string | null>(null)
-  const [pendingConfirm, setPendingConfirm] = useState<{ pnr: string; amountPaid: number; method: "card" | "upi" } | null>(null)
+  const [pendingConfirm, setPendingConfirm] = useState<{ amountPaid: number; method: "card" | "upi" } | null>(null)
 
   const [msLeft, setMsLeft] = useState<number | null>(null)
+
+  const [seatMap, setSeatMap] = useState<Record<string, string>>({})
+  const [gateMap, setGateMap] = useState<Record<string, string>>({})
 
   useEffect(() => {
     const t = requestAnimationFrame(() => setMounted(true))
@@ -154,6 +176,42 @@ export default function PaymentPage() {
       setLoadState("missing")
     }
   }, [])
+
+  useEffect(() => {
+    if (!selection?.bookingId) return
+    let cancelled = false
+    fetch(`/api/bookings/${selection.bookingId}/seats`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.seats) return
+        const map: Record<string, string> = {}
+        for (const s of data.seats as { flightInstanceId: string; passengerId: string | null; seatNumber: string }[]) {
+          if (s.passengerId) map[`${s.flightInstanceId}:${s.passengerId}`] = s.seatNumber
+        }
+        setSeatMap(map)
+      })
+      .catch((err) => console.warn("Failed to fetch seat assignments:", err))
+    return () => {
+      cancelled = true
+    }
+  }, [selection?.bookingId])
+
+  useEffect(() => {
+    if (!selection?.departFlight?.flight_instance_id) return
+    const ids = [selection.departFlight.flight_instance_id, selection.returnFlight?.flight_instance_id]
+      .filter((id): id is string => !!id)
+    let cancelled = false
+    fetch(`/api/flights/gate?ids=${ids.join(",")}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.gates) return
+        setGateMap(data.gates)
+      })
+      .catch((err) => console.warn("Failed to fetch gate assignments:", err))
+    return () => {
+      cancelled = true
+    }
+  }, [selection?.departFlight?.flight_instance_id, selection?.returnFlight?.flight_instance_id])
 
   useEffect(() => {
     if (!selection?.holdExpiresAt || paid) return
@@ -197,6 +255,40 @@ export default function PaymentPage() {
     ? passengerDisplayName(selection.savedPassengers[0])
     : name.trim() || "Traveler"
 
+  function buildBoardingPasses(finalPnr: string): BoardingPassData[] {
+    if (!selection) return []
+    const legs = [
+      { flight: departFlight, label: isRoundTrip ? "Departure" : undefined },
+      ...(returnFlight ? [{ flight: returnFlight, label: "Return" as const }] : []),
+    ]
+    const passengers = selection.savedPassengers && selection.savedPassengers.length > 0
+      ? selection.savedPassengers
+      : [null]
+
+    const passes: BoardingPassData[] = []
+    legs.forEach((leg) => {
+      passengers.forEach((p) => {
+        const seat = p?.id ? seatMap[`${leg.flight.flight_instance_id}:${p.id}`] : undefined
+        passes.push({
+          pnr: finalPnr,
+          passengerName: p ? passengerDisplayName(p) : primaryPassengerName,
+          airline: leg.flight.airline,
+          logoSrc: airlineLogos[leg.flight.airline] || "/airlines/default.png",
+          seat,
+          gate: gateMap[leg.flight.flight_instance_id],
+          flightNumber: deriveFlightNumber(leg.flight.airline, leg.flight.flight_instance_id),
+          addons: selection.addons?.map((a) => ({ id: a.id, title: a.title })),
+          origin: leg.flight.origin,
+          destination: leg.flight.destination,
+          dateLabel: leg.flight.travel_date,
+          timeLabel: formatTime(leg.flight.departure_time),
+          legLabel: leg.label,
+        })
+      })
+    })
+    return passes
+  }
+
   function openGatewayForCard() {
     const fieldErrors = validateCardForm({ name, numberDigits, brand, expiry, cvv })
     setErrors(fieldErrors)
@@ -211,7 +303,7 @@ export default function PaymentPage() {
     setGatewayOpen(true)
   }
 
-  async function confirmBookingInDb(pnrToConfirm: string, amountPaid: number, paymentMethod: "card" | "upi") {
+  async function confirmBookingInDb(amountPaid: number, paymentMethod: "card" | "upi") {
     if (!selection?.bookingId) {
       setConfirmError("Missing booking reference — please contact support.")
       return
@@ -222,29 +314,30 @@ export default function PaymentPage() {
       const res = await fetch(`/api/bookings/${selection.bookingId}/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pnr: pnrToConfirm, amountPaid, paymentMethod }),
+        body: JSON.stringify({ amountPaid, paymentMethod }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error || "Couldn't confirm the booking")
 
-      setPnr(pnrToConfirm)
+      setPnr(data.pnr)
       setPaid(true)
       setPendingConfirm(null)
       try {
         sessionStorage.setItem(
           "navigo:lastBooking",
-          JSON.stringify({ pnr: pnrToConfirm, bookingId: selection.bookingId, amountPaid, paidAt: Date.now() })
+          JSON.stringify({ pnr: data.pnr, bookingId: selection.bookingId, amountPaid, paidAt: Date.now() })
         )
         sessionStorage.removeItem(STORAGE_KEY)
+        // ✅ FIX: also clear the namespaced bookingId + passenger draft so
+        // the next booking this user starts can't accidentally reattach
+        // to this now-confirmed booking.
+        clearStaleBookingSession()
       } catch (err) {
         console.error("Failed to persist completed booking:", err)
       }
     } catch (err: any) {
       console.error("CONFIRM BOOKING FAILED:", err)
-      // Payment already succeeded at the gateway — don't send them back
-      // through the card form. Keep the same PNR so a retry is idempotent
-      // on the server (see the /confirm route's alreadyConfirmed check).
-      setPendingConfirm({ pnr: pnrToConfirm, amountPaid, method: paymentMethod })
+      setPendingConfirm({ amountPaid, method: paymentMethod })
       setConfirmError(err?.message || "Payment succeeded, but we couldn't finalize your booking. Please retry.")
     } finally {
       setConfirming(false)
@@ -254,11 +347,10 @@ export default function PaymentPage() {
   function handleGatewayComplete(result: { success: boolean; reason?: string }) {
     setGatewayOpen(false)
     if (result.success) {
-      const newPnr = generatePnr()
-      void confirmBookingInDb(newPnr, tripTotal, method)
+      void confirmBookingInDb(tripTotal, method)
     } else {
       setLastFailure(result.reason || "Payment failed. Please try again.")
-      setCvv("") // clear CVV after a failed attempt, same as most real checkouts
+      setCvv("")
     }
   }
 
@@ -277,7 +369,7 @@ export default function PaymentPage() {
               <p className="text-sm font-semibold text-white">Payment received, booking not yet confirmed</p>
               <p className="text-xs text-slate-500">{confirmError}</p>
               <button
-                onClick={() => pendingConfirm && confirmBookingInDb(pendingConfirm.pnr, pendingConfirm.amountPaid, pendingConfirm.method)}
+                onClick={() => pendingConfirm && confirmBookingInDb(pendingConfirm.amountPaid, pendingConfirm.method)}
                 className="mt-2 px-6 py-3 rounded-full pill-cta font-semibold text-sm"
               >
                 Retry Confirmation
@@ -292,14 +384,9 @@ export default function PaymentPage() {
   if (paid && pnr) {
     return (
       <PageShell hideStepper>
-        <BoardingPass
-          pnr={pnr}
-          passengerName={primaryPassengerName}
-          origin={selection.origin || departFlight.origin}
-          destination={selection.destination || departFlight.destination}
-          departureLabel={`${formatTime(departFlight.departure_time)} · ${departFlight.travel_date || ""}`.trim()}
-          airline={departFlight.airline}
-          amountPaid={tripTotal}
+        <BoardingPassDeck
+          passes={buildBoardingPasses(pnr)}
+          formattedAmount={formatINR(tripTotal)}
           onDone={() => router.push("/my-trips")}
         />
       </PageShell>
@@ -314,7 +401,6 @@ export default function PaymentPage() {
       </div>
 
       <div className="grid grid-cols-12 gap-6">
-        {/* ── Left: booking details + fare breakdown ─────────────────── */}
         <div className="col-span-12 lg:col-span-5 space-y-4">
           <FlightSummaryCard flight={departFlight} tag={isRoundTrip ? "Departure" : undefined} />
           {isRoundTrip && <FlightSummaryCard flight={returnFlight} tag="Return" />}
@@ -362,7 +448,6 @@ export default function PaymentPage() {
           <SecurityBadges />
         </div>
 
-        {/* ── Right: payment methods ──────────────────────────────────── */}
         <div className="col-span-12 lg:col-span-7">
           <div className="bg-white/[0.02] border border-white/[0.08] rounded-2xl p-5 sm:p-6">
             <div className="flex items-center gap-0.5 rounded-lg bg-white/[0.04] border border-white/[0.08] p-0.5 w-fit mb-6">
@@ -496,10 +581,6 @@ export default function PaymentPage() {
   )
 }
 
-// ---------------------------------------------------------------------------
-// Field — input wrapper with a gold glow on focus and inline error state.
-// ---------------------------------------------------------------------------
-
 function Field({
   label,
   error,
@@ -532,10 +613,6 @@ function Field({
   )
 }
 
-// ---------------------------------------------------------------------------
-// HoldTimer — same compact radial-gauge pill as the add-ons page.
-// ---------------------------------------------------------------------------
-
 function HoldTimer({ msLeft, holdMinutes }: { msLeft: number; holdMinutes: number }) {
   const totalSeconds = Math.max(0, Math.floor(msLeft / 1000))
   const mm = Math.floor(totalSeconds / 60)
@@ -567,10 +644,6 @@ function HoldTimer({ msLeft, holdMinutes }: { msLeft: number; holdMinutes: numbe
   )
 }
 
-// ---------------------------------------------------------------------------
-// FlightSummaryCard — compact read-only review card
-// ---------------------------------------------------------------------------
-
 function FlightSummaryCard({ flight, tag }: { flight: StoredFlight; tag?: "Departure" | "Return" }) {
   return (
     <div className="relative bg-gradient-to-br from-[#0D1A2C] via-[#0B1729] to-[#0A1424] border border-white/[0.08] rounded-2xl overflow-hidden ticket-edge">
@@ -595,10 +668,6 @@ function FlightSummaryCard({ flight, tag }: { flight: StoredFlight; tag?: "Depar
   )
 }
 
-// ---------------------------------------------------------------------------
-// SecurityBadges
-// ---------------------------------------------------------------------------
-
 function SecurityBadges() {
   const badges = [
     { icon: "🔒", label: "256-bit SSL encrypted" },
@@ -617,10 +686,6 @@ function SecurityBadges() {
     </div>
   )
 }
-
-// ---------------------------------------------------------------------------
-// PageShell / Stepper
-// ---------------------------------------------------------------------------
 
 function PageShell({ children, hideStepper }: { children: React.ReactNode; hideStepper?: boolean }) {
   const router = useRouter()

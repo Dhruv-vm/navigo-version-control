@@ -3,27 +3,35 @@ import { supabase } from "@/lib/supabase"
 
 // POST /api/bookings/[bookingId]/confirm
 //
-// Called once the (sandboxed) payment gateway reports success. This is the
-// step that was MISSING before — the payment page only updated local React
-// state + sessionStorage, so the booking stayed `status = 'draft'` in the
-// database with its original 15-minute hold_expires_at untouched. A
-// 'draft' booking whose hold has lapsed is indistinguishable from an
-// abandoned one, so the seats route's expired-hold sweep (see
-// /api/bookings/[bookingId]/seats) was still eligible to release its
-// seats back into inventory — even after the traveler had actually paid.
-// That's exactly why it kept bouncing back to seat selection.
-//
-// This route flips status to 'confirmed' and nulls hold_expires_at, which
-// removes the booking from that sweep entirely (it's no longer 'draft').
+// ✅ CHANGED: the PNR is now generated HERE, not on the client. Previously
+// the payment page generated a PNR locally and sent it to this route to
+// store — meaning what the traveler saw on screen (and in their PDF) was
+// only ever a guess about what actually landed in Supabase, not a
+// guaranteed reflection of it. Now this route is the single source of
+// truth: it generates the PNR, writes it, and returns it — the client
+// only ever displays what this response contains, and the idempotent
+// "already confirmed" branch below returns the PNR that's actually in the
+// row rather than risking a second, different value.
 //
 // ⚠️ Requires migration_confirm_booking.sql to have been run once.
-// If your `status` column is an enum/check-constraint that doesn't accept
-// "confirmed", change CONFIRMED_STATUS below to match your schema.
+// If your `status` column doesn't accept "confirmed", change
+// CONFIRMED_STATUS below to match your schema.
 
 const CONFIRMED_STATUS = "confirmed"
 
+// No ambiguous glyphs (no 0/O, 1/I) — reads clean on a boarding pass.
+// Duplicated from bookingUtils.ts on purpose: that file lives under
+// app/checkout/payment/ and this route lives under a different branch of
+// the app router, so it's a tiny (6-line) copy rather than a cross-tree
+// import.
+function generatePnr(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+  let out = ""
+  for (let i = 0; i < 6; i++) out += chars[Math.floor(Math.random() * chars.length)]
+  return out
+}
+
 type ConfirmPayload = {
-  pnr: string
   amountPaid: number
   paymentMethod: "card" | "upi"
 }
@@ -39,13 +47,13 @@ export async function POST(
     if (!bookingId) {
       return NextResponse.json({ error: "Missing booking id" }, { status: 400 })
     }
-    if (!body.pnr || typeof body.amountPaid !== "number") {
-      return NextResponse.json({ error: "Missing pnr or amountPaid" }, { status: 400 })
+    if (typeof body.amountPaid !== "number") {
+      return NextResponse.json({ error: "Missing amountPaid" }, { status: 400 })
     }
 
     const { data: booking, error: fetchError } = await supabase
       .from("bookings")
-      .select("id, status")
+      .select("id, status, pnr")
       .eq("id", bookingId)
       .single()
 
@@ -54,12 +62,11 @@ export async function POST(
       return NextResponse.json({ error: "Booking not found" }, { status: 404 })
     }
 
-    // Idempotent — if this booking was already confirmed (e.g. the client
-    // retried after a network blip), just report success instead of
-    // erroring, so a "retry" button on the frontend is always safe to
-    // press more than once.
+    // Idempotent — a retried request (e.g. after a network blip on the
+    // client) always gets back the PNR that's genuinely in the row,
+    // never a freshly generated one.
     if (booking.status === CONFIRMED_STATUS) {
-      return NextResponse.json({ bookingId, alreadyConfirmed: true })
+      return NextResponse.json({ bookingId, status: CONFIRMED_STATUS, pnr: booking.pnr, alreadyConfirmed: true })
     }
 
     if (booking.status !== "draft") {
@@ -69,25 +76,41 @@ export async function POST(
       )
     }
 
-    const { error: updateError } = await supabase
-      .from("bookings")
-      .update({
-        status: CONFIRMED_STATUS,
-        hold_expires_at: null, // finalized — no longer needs a hold
-        pnr: body.pnr,
-        payment_method: body.paymentMethod,
-        paid_amount: body.amountPaid,
-        paid_at: new Date().toISOString(),
-      })
-      .eq("id", bookingId)
-      .eq("status", "draft") // guards against a race with a concurrent confirm
+    // Generate + write, retrying only on an actual PNR collision against
+    // the unique index from migration_confirm_booking.sql (astronomically
+    // unlikely at 33^6 possibilities, but cheap to guard anyway).
+    let finalPnr = ""
+    let lastError: { code?: string; message: string } | null = null
 
-    if (updateError) {
-      console.error("CONFIRM BOOKING - UPDATE ERROR:", updateError)
-      return NextResponse.json({ error: updateError.message }, { status: 500 })
+    for (let attempt = 0; attempt < 5; attempt++) {
+      finalPnr = generatePnr()
+      const { error } = await supabase
+        .from("bookings")
+        .update({
+          status: CONFIRMED_STATUS,
+          hold_expires_at: null,
+          pnr: finalPnr,
+          payment_method: body.paymentMethod,
+          paid_amount: body.amountPaid,
+          paid_at: new Date().toISOString(),
+        })
+        .eq("id", bookingId)
+        .eq("status", "draft") // guards against a race with a concurrent confirm
+
+      if (!error) {
+        lastError = null
+        break
+      }
+      lastError = error
+      if (error.code !== "23505") break // only retry on a PNR collision
     }
 
-    return NextResponse.json({ bookingId, status: CONFIRMED_STATUS, pnr: body.pnr })
+    if (lastError) {
+      console.error("CONFIRM BOOKING - UPDATE ERROR:", lastError)
+      return NextResponse.json({ error: lastError.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ bookingId, status: CONFIRMED_STATUS, pnr: finalPnr })
   } catch (err) {
     console.error("CONFIRM BOOKING - SERVER ERROR:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
