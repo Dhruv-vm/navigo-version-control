@@ -55,6 +55,7 @@ type Passenger = {
   countryCode: string
   mobile: string
   isPrimaryContact: boolean
+  sourceSavedId?: string
 }
 
 // Shape returned by GET /api/saved-passengers (snake_case, straight from DB)
@@ -90,16 +91,6 @@ function makeId() {
   return Math.random().toString(36).slice(2, 10)
 }
 
-// ✅ FIX (data isolation): the passenger draft and bookingId used to be
-// stored under one fixed sessionStorage key shared by EVERY user on this
-// browser/tab. If a previous person's session was still in sessionStorage
-// (e.g. shared computer, or the app didn't clear it on logout), the next
-// person to open the passenger form would see their pre-filled details.
-//
-// Fix: namespace those two keys with the logged-in user's id (decoded
-// from the JWT already in localStorage — see Navbar.tsx, same token).
-// Logged-out visitors fall back to a "guest" bucket, which is still
-// isolated from every real account.
 function decodeUserIdFromToken(token: string): string | null {
   try {
     const payload = token.split(".")[1]
@@ -150,6 +141,7 @@ function savedPassengerToPassenger(sp: SavedPassenger, isPrimaryContact: boolean
     countryCode: "+91",
     mobile: "",
     isPrimaryContact,
+    sourceSavedId: sp.id,
   }
 }
 
@@ -216,7 +208,6 @@ export default function PassengerDetailsPage() {
   const [mounted, setMounted] = useState(false)
   const [pulseSavings, setPulseSavings] = useState(false)
 
-  // ✅ NEW: identity + saved-passenger reuse state
   const [authToken, setAuthToken] = useState<string | null>(null)
   const [storageNamespace, setStorageNamespace] = useState<string>("guest")
   const [savedPassengers, setSavedPassengers] = useState<SavedPassenger[]>([])
@@ -225,15 +216,18 @@ export default function PassengerDetailsPage() {
   const paxDraftKey = `${PAX_DRAFT_BASE_KEY}:${storageNamespace}`
   const bookingIdKey = `${BOOKING_ID_BASE_KEY}:${storageNamespace}`
 
+  // ✅ NEW: how many passenger slots this booking is actually allowed to
+  // have — driven by what was chosen at search time (selection.passengers),
+  // not a flat app-wide ceiling. MAX_PASSENGERS is kept only as an absolute
+  // safety cap in case selection.passengers is ever missing/corrupted.
+  const maxPassengers = Math.min(Math.max(1, selection?.passengers || 1), MAX_PASSENGERS)
+
   useEffect(() => {
     const t = requestAnimationFrame(() => setMounted(true))
     return () => cancelAnimationFrame(t)
   }, [])
 
   useEffect(() => {
-    // Resolve identity FIRST so the draft/bookingId keys we read below are
-    // already correctly namespaced — avoids a race where we'd briefly read
-    // the wrong (shared) key.
     const token = getAuthToken()
     const namespace = token ? decodeUserIdFromToken(token) || "guest" : "guest"
     setAuthToken(token)
@@ -251,20 +245,39 @@ export default function PassengerDetailsPage() {
       setLoadState("found")
 
       const draftRaw = sessionStorage.getItem(localPaxDraftKey)
+      // ✅ FIX: a cached draft from a PREVIOUS search (different passenger
+      // count) was being restored as-is, with no check against what THIS
+      // search actually asked for — e.g. a leftover 2-passenger draft
+      // would still show 2 slots on a fresh 1-passenger search, silently
+      // bypassing the "don't allow more than searched-for" cap entirely,
+      // since the array was already oversized before that cap logic ever
+      // runs. Now the draft is trimmed/padded to match parsed.passengers
+      // right here, at load time.
+      const targetCount = Math.min(Math.max(1, parsed.passengers || 1), MAX_PASSENGERS)
+
+      let initial: Passenger[]
       if (draftRaw) {
         const draft = JSON.parse(draftRaw) as Passenger[]
         if (Array.isArray(draft) && draft.length > 0) {
-          setPassengers(draft)
-          setExpandedId(draft[0].localId)
+          if (draft.length > targetCount) {
+            initial = draft.slice(0, targetCount)
+            if (!initial.some((p) => p.isPrimaryContact)) {
+              initial[0] = { ...initial[0], isPrimaryContact: true }
+            }
+          } else if (draft.length < targetCount) {
+            const extra = Array.from({ length: targetCount - draft.length }, () => emptyPassenger("adult", false))
+            initial = [...draft, ...extra]
+          } else {
+            initial = draft
+          }
+        } else {
+          initial = Array.from({ length: targetCount }, (_, i) => emptyPassenger("adult", i === 0))
         }
       } else {
-        const initialCount = Math.max(1, parsed.passengers || 1)
-        const initial = Array.from({ length: initialCount }, (_, i) =>
-          emptyPassenger("adult", i === 0)
-        )
-        setPassengers(initial)
-        setExpandedId(initial[0].localId)
+        initial = Array.from({ length: targetCount }, (_, i) => emptyPassenger("adult", i === 0))
       }
+      setPassengers(initial)
+      setExpandedId(initial[0].localId)
 
       const savedBookingId = sessionStorage.getItem(localBookingIdKey)
       if (savedBookingId) setBookingId(savedBookingId)
@@ -273,8 +286,6 @@ export default function PassengerDetailsPage() {
       setLoadState("missing")
     }
 
-    // ✅ Fetch this user's saved passenger book (server-scoped to their
-    // user_id — see /api/saved-passengers). Only happens when logged in.
     if (token) {
       fetch("/api/saved-passengers", {
         headers: { Authorization: `Bearer ${token}` },
@@ -303,12 +314,34 @@ export default function PassengerDetailsPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
+  // ✅ NEW: which saved-passenger ids are already applied to SOME slot in
+  // this booking — used to grey those out everywhere else so the same
+  // saved passenger can't be picked into two different slots by accident.
+  const usedSavedIds = useMemo(
+    () => new Set(passengers.map((p) => p.sourceSavedId).filter((id): id is string => !!id)),
+    [passengers]
+  )
+
   const updatePassenger = (localId: string, patch: Partial<Passenger>) => {
     setPassengers((prev) => prev.map((p) => (p.localId === localId ? { ...p, ...patch } : p)))
   }
 
   const replacePassenger = (localId: string, next: Passenger) => {
     setPassengers((prev) => prev.map((p) => (p.localId === localId ? { ...next, localId, isPrimaryContact: p.isPrimaryContact } : p)))
+  }
+
+  // ✅ NEW: reset one slot back to a blank form — the "start a new
+  // passenger instead" option in the saved-passenger section. Keeps the
+  // slot's original localId so React reconciliation, expandedId, and
+  // errorsByPassenger all stay correctly associated with this card.
+  const resetPassengerToBlank = (localId: string) => {
+    setPassengers((prev) =>
+      prev.map((p) => {
+        if (p.localId !== localId) return p
+        const blank = emptyPassenger(p.type, p.isPrimaryContact)
+        return { ...blank, localId }
+      })
+    )
   }
 
   const validateAndCollapse = (localId: string) => {
@@ -322,7 +355,7 @@ export default function PassengerDetailsPage() {
   }
 
   const addPassenger = () => {
-    if (passengers.length >= MAX_PASSENGERS) return
+    if (passengers.length >= maxPassengers) return
     const next = emptyPassenger("adult", false)
     setPassengers((prev) => [...prev, next])
     setExpandedId(next.localId)
@@ -375,7 +408,7 @@ export default function PassengerDetailsPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`, // ✅ booking now tied to logged-in user
+          Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify({
           bookingId: bookingId || undefined,
@@ -402,7 +435,7 @@ export default function PassengerDetailsPage() {
           seatSelectionPrice: 0,
           mealsPrice: 0,
           totalPrice: total,
-          saveForNextTime, // ✅ upserts into saved_passengers, doesn't touch past bookings
+          saveForNextTime,
         }),
       })
 
@@ -530,10 +563,12 @@ export default function PassengerDetailsPage() {
                   entranceDelay={220 + index * 90}
                   mounted={mounted}
                   savedPassengers={savedPassengers}
+                  usedSavedIds={usedSavedIds}
                   onToggle={() => setExpandedId((cur) => (cur === passenger.localId ? null : passenger.localId))}
                   onCollapseWithValidation={() => validateAndCollapse(passenger.localId)}
                   onChange={(patch) => updatePassenger(passenger.localId, patch)}
                   onUseSaved={(sp) => replacePassenger(passenger.localId, savedPassengerToPassenger(sp, passenger.isPrimaryContact))}
+                  onUseBlank={() => resetPassengerToBlank(passenger.localId)}
                   onRemove={() => removePassenger(passenger.localId)}
                   onSetPrimaryContact={() => handleSetPrimaryContact(passenger.localId)}
                 />
@@ -542,11 +577,15 @@ export default function PassengerDetailsPage() {
 
             <button
               onClick={addPassenger}
-              disabled={passengers.length >= MAX_PASSENGERS}
+              disabled={passengers.length >= maxPassengers}
               className="w-full rounded-2xl border border-dashed border-white/[0.14] py-5 text-sm text-cyan-300 hover:text-cyan-200 hover:border-cyan-400/30 hover:bg-cyan-400/[0.03] transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed flex flex-col items-center gap-1 add-passenger-btn"
             >
               <span className="flex items-center gap-2 font-medium"><span aria-hidden>+</span> Add Another Passenger</span>
-              <span className="text-[11px] text-slate-500">Maximum {MAX_PASSENGERS} passengers per booking</span>
+              <span className="text-[11px] text-slate-500">
+                {passengers.length >= maxPassengers
+                  ? `All ${maxPassengers} passenger${maxPassengers > 1 ? "s" : ""} from your search added`
+                  : `You selected ${maxPassengers} passenger${maxPassengers > 1 ? "s" : ""} at search — ${maxPassengers - passengers.length} more to add`}
+              </span>
             </button>
 
             <div className="flex items-center justify-between flex-wrap gap-4 pt-2 text-xs text-slate-500">
@@ -590,12 +629,6 @@ export default function PassengerDetailsPage() {
   )
 }
 
-// ---------------------------------------------------------------------------
-// Stepper — continuous progress track instead of dashed segments, matching
-// the seats page: one gradient line fills as you move through the six real
-// checkout stages, rather than reading as a static checklist.
-// ---------------------------------------------------------------------------
-
 function Stepper({ activeId }: { activeId: number }) {
   const progressPct = ((activeId - 1) / (steps.length - 1)) * 100
 
@@ -635,7 +668,6 @@ function Stepper({ activeId }: { activeId: number }) {
         </div>
       </div>
 
-      {/* compact mobile fallback — dot progress only, six labels don't fit a phone width */}
       <div className="flex md:hidden items-center gap-1.5">
         {steps.map((step) => (
           <span
@@ -714,9 +746,6 @@ function BoardingPassMini({ flight, travelDate, tag }: { flight: StoredFlight; t
   )
 }
 
-// Cycling per-passenger colour — same palette used for seat assignment on
-// the next page, so "Adult 2" reads as the same person (violet) across the
-// whole checkout flow instead of every passenger card looking identical.
 const PAX_COLORS = [
   { ring: "border-cyan-400/30", bg: "bg-cyan-400/15", text: "text-cyan-300" },
   { ring: "border-violet-400/30", bg: "bg-violet-400/15", text: "text-violet-300" },
@@ -724,10 +753,80 @@ const PAX_COLORS = [
   { ring: "border-emerald-400/30", bg: "bg-emerald-400/15", text: "text-emerald-300" },
 ]
 
-function PassengerCard({ index, passenger, isExpanded, errors, canRemove, entranceDelay, mounted, savedPassengers, onToggle, onCollapseWithValidation, onChange, onUseSaved, onRemove, onSetPrimaryContact }: {
+// ---------------------------------------------------------------------------
+// SavedPassengerSection — was a plain <Select> dropdown; now a real section
+// of pickable chip-cards (name + DOB, initials avatar), matching "make it
+// like a section with autofill". A saved passenger already used in a
+// DIFFERENT slot shows greyed-out and unpickable here, so the same person
+// can't end up filled into two passenger slots by accident. Includes an
+// explicit "New Passenger" option alongside the saved ones.
+// ---------------------------------------------------------------------------
+
+function SavedPassengerSection({ savedPassengers, usedSavedIds, currentSourceId, onUseSaved, onUseBlank }: {
+  savedPassengers: SavedPassenger[]
+  usedSavedIds: Set<string>
+  currentSourceId?: string
+  onUseSaved: (sp: SavedPassenger) => void
+  onUseBlank: () => void
+}) {
+  if (savedPassengers.length === 0) return null
+
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5">
+      <p className="text-xs text-slate-400 mb-2.5">Fill instantly from someone you've flown before, or start blank below.</p>
+      <div className="flex flex-wrap gap-2">
+        {savedPassengers.map((sp) => {
+          const isThisSlot = sp.id === currentSourceId
+          const usedElsewhere = usedSavedIds.has(sp.id) && !isThisSlot
+          return (
+            <button
+              key={sp.id}
+              type="button"
+              disabled={usedElsewhere}
+              onClick={() => onUseSaved(sp)}
+              className={`flex items-center gap-2 pl-2 pr-3 py-2 rounded-full border text-left transition-colors ${
+                isThisSlot
+                  ? "border-amber-300/60 bg-amber-400/[0.08]"
+                  : usedElsewhere
+                  ? "border-white/[0.06] bg-white/[0.02] text-slate-600 cursor-not-allowed"
+                  : "border-white/[0.1] bg-white/[0.03] hover:border-amber-300/50 hover:bg-amber-400/[0.06] text-slate-200"
+              }`}
+            >
+              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                usedElsewhere ? "bg-white/[0.06] text-slate-600" : "bg-amber-400/15 text-amber-300"
+              }`}>
+                {(sp.first_name?.[0] ?? "?").toUpperCase()}{(sp.last_name?.[0] ?? "").toUpperCase()}
+              </span>
+              <span className="text-xs">
+                <span className="block font-medium leading-tight">
+                  {sp.title ? `${sp.title} ` : ""}{sp.first_name} {sp.last_name}
+                </span>
+                {sp.date_of_birth && <span className="block text-[10px] text-slate-500 leading-tight">DOB {sp.date_of_birth}</span>}
+              </span>
+              {usedElsewhere && <span className="text-[9px] uppercase tracking-wide ml-1 shrink-0">Added</span>}
+            </button>
+          )
+        })}
+        <button
+          type="button"
+          onClick={onUseBlank}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-full border border-dashed transition-colors text-xs font-medium ${
+            !currentSourceId ? "border-cyan-400/60 bg-cyan-400/[0.08] text-cyan-300" : "border-cyan-400/30 text-cyan-300 hover:bg-cyan-400/[0.06]"
+          }`}
+        >
+          <span aria-hidden>+</span> New Passenger
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function PassengerCard({ index, passenger, isExpanded, errors, canRemove, entranceDelay, mounted, savedPassengers, usedSavedIds, onToggle, onCollapseWithValidation, onChange, onUseSaved, onUseBlank, onRemove, onSetPrimaryContact }: {
   index: number; passenger: Passenger; isExpanded: boolean; errors: FieldErrors; canRemove: boolean
-  entranceDelay: number; mounted: boolean; savedPassengers: SavedPassenger[]; onToggle: () => void; onCollapseWithValidation: () => void
-  onChange: (patch: Partial<Passenger>) => void; onUseSaved: (sp: SavedPassenger) => void; onRemove: () => void; onSetPrimaryContact: () => void
+  entranceDelay: number; mounted: boolean; savedPassengers: SavedPassenger[]; usedSavedIds: Set<string>
+  onToggle: () => void; onCollapseWithValidation: () => void
+  onChange: (patch: Partial<Passenger>) => void; onUseSaved: (sp: SavedPassenger) => void; onUseBlank: () => void
+  onRemove: () => void; onSetPrimaryContact: () => void
 }) {
   const isComplete = Object.keys(errors).length === 0 && passenger.firstName && passenger.lastName
   const label = passenger.type === "adult" ? `Adult ${index + 1}` : passenger.type === "child" ? `Child ${index + 1}${passenger.age ? ` (Age ${passenger.age})` : ""}` : `Infant ${index + 1}`
@@ -764,29 +863,13 @@ function PassengerCard({ index, passenger, isExpanded, errors, canRemove, entran
         <div className="overflow-hidden">
           <div className={`px-6 pb-6 space-y-5 transition-opacity duration-300 ${isExpanded ? "opacity-100 delay-100" : "opacity-0"}`}>
 
-            {savedPassengers.length > 0 && (
-              <div>
-                <label className="block text-xs text-slate-500 mb-1.5">Use a saved passenger (optional)</label>
-                <UiSelect
-                  value=""
-                  onValueChange={(id : string) => {
-                    const sp = savedPassengers.find((s) => s.id === id)
-                    if (sp) onUseSaved(sp)
-                  }}
-                >
-                  <SelectTrigger className="field-input w-full sm:w-auto min-w-[240px] rounded-lg bg-white/[0.03] px-3 py-2.5 text-sm text-white border border-white/[0.08] data-[state=open]:border-amber-300/60 h-auto">
-                    <SelectValue placeholder="Select a saved passenger…" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-[#0D1A2C] border-white/10 text-white">
-                    {savedPassengers.map((sp) => (
-                      <SelectItem key={sp.id} value={sp.id} className="focus:bg-amber-400/10 focus:text-amber-200">
-                        {sp.title ? `${sp.title} ` : ""}{sp.first_name} {sp.last_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </UiSelect>
-              </div>
-            )}
+            <SavedPassengerSection
+              savedPassengers={savedPassengers}
+              usedSavedIds={usedSavedIds}
+              currentSourceId={passenger.sourceSavedId}
+              onUseSaved={onUseSaved}
+              onUseBlank={onUseBlank}
+            />
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <Field label="Title">
@@ -871,13 +954,6 @@ function TextInput({ value, onChange, type = "text", placeholder, error, errorTe
     </div>
   )
 }
-
-// ---------------------------------------------------------------------------
-// Select — same external API as before (value / onChange / options /
-// placeholder / error), now backed by shadcn's Radix Select so the dropdown
-// popover is actually themed dark everywhere instead of falling back to the
-// OS's native (usually light) select menu.
-// ---------------------------------------------------------------------------
 
 function Select({ value, onChange, options, placeholder, error }: {
   value: string; onChange: (v: string) => void; options: string[]; placeholder?: string; error?: boolean
@@ -1139,12 +1215,8 @@ function PageStyles() {
     <style jsx global>{`
       @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&display=swap');
 
-      /* Bold sans for prices/times — same font used on the seats page so
-         big numerals feel consistent across the whole checkout flow. */
       .font-display { font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.01em; }
 
-      /* Hairline gold ticket border — same boarding-pass edge used on the
-         seats page cards, so these panels don't read as bare flat boxes. */
       .ticket-edge { position: relative; }
       .ticket-edge::before {
         content: "";
@@ -1155,8 +1227,6 @@ function PageStyles() {
         pointer-events: none;
       }
 
-      /* Blue → gold pill CTA — matches the seats page "Continue" button,
-         so the primary action looks identical at every checkout step. */
       .pill-cta {
         background: linear-gradient(90deg, #38BDF8 0%, #60A5FA 30%, #D4AF37 70%, #FBBF24 100%);
         color: #060B14;
