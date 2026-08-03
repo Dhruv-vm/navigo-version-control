@@ -92,33 +92,36 @@ export function RazorpaySandboxModal({
               </span>
             </div>
 
-            <div className="px-5 py-5">
-              <p className="text-xs text-slate-500 mb-4">Charging <span className="text-white font-medium">{formatINR(amount)}</span></p>
+            <div className="px-5 py-7">
+              <p className="text-xs text-slate-500 mb-5 text-center">Charging <span className="text-white font-medium">{formatINR(amount)}</span></p>
 
               {outcome === null ? (
-                <div className="space-y-3">
-                  {STEPS.map((label, i) => {
-                    const done = i < stepIndex
-                    const active = i === stepIndex
-                    return (
-                      <div key={label} className="flex items-center gap-3">
-                        <span
-                          className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 border transition-colors ${
-                            done
-                              ? "bg-emerald-400/20 border-emerald-400/40 text-emerald-300"
-                              : active
-                              ? "border-[#D4AF37]/50 text-[#E8C766]"
-                              : "border-white/10 text-transparent"
-                          }`}
-                        >
-                          {done ? "✓" : active ? <Spinner /> : "•"}
-                        </span>
-                        <span className={`text-xs transition-colors ${done ? "text-slate-500 line-through" : active ? "text-white" : "text-slate-600"}`}>
-                          {label}
-                        </span>
-                      </div>
-                    )
-                  })}
+                <div className="flex flex-col items-center">
+                  <SpinningCoin />
+                  <div className="h-5 mt-5 relative w-full max-w-[240px]">
+                    <AnimatePresence mode="wait">
+                      <motion.p
+                        key={stepIndex}
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -6 }}
+                        transition={{ duration: 0.25 }}
+                        className="absolute inset-x-0 text-center text-xs text-slate-300"
+                      >
+                        {STEPS[Math.max(0, stepIndex)]}
+                      </motion.p>
+                    </AnimatePresence>
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-4">
+                    {STEPS.map((_, i) => (
+                      <span
+                        key={i}
+                        className={`h-1 rounded-full transition-all duration-300 ${
+                          i <= stepIndex ? "w-5 bg-[#D4AF37]" : "w-1.5 bg-white/15"
+                        }`}
+                      />
+                    ))}
+                  </div>
                 </div>
               ) : outcome.success ? (
                 <motion.div
@@ -149,13 +152,43 @@ export function RazorpaySandboxModal({
   )
 }
 
-function Spinner() {
+// ---------------------------------------------------------------------------
+// SpinningCoin — continuous 3D flip between a ₹ face and the Navigo mark,
+// same gold gradient/material as the payment card's chip and the boarding
+// pass's gold accents, so this reads as the same product rather than a
+// generic loading spinner.
+// ---------------------------------------------------------------------------
+
+function SpinningCoin() {
+  const faceStyle: React.CSSProperties = {
+    backfaceVisibility: "hidden",
+    WebkitBackfaceVisibility: "hidden",
+  }
+
   return (
-    <motion.span
-      animate={{ rotate: 360 }}
-      transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
-      className="block w-2.5 h-2.5 border-2 border-[#E8C766] border-t-transparent rounded-full"
-    />
+    <div style={{ perspective: 500 }} className="w-16 h-16">
+      <motion.div
+        animate={{ rotateY: 360 }}
+        transition={{ duration: 1.3, repeat: Infinity, ease: "linear" }}
+        style={{ transformStyle: "preserve-3d", WebkitTransformStyle: "preserve-3d" }}
+        className="relative w-16 h-16"
+      >
+        <div style={faceStyle} className="absolute inset-0 rounded-full overflow-hidden shadow-[0_8px_24px_rgba(212,175,55,0.35)]">
+          <div className="absolute inset-0 bg-gradient-to-br from-[#F1D98A] via-[#D4AF37] to-[#B8860B]" />
+          <div className="absolute inset-[3px] rounded-full border-2 border-[#8a6a1f]/40" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="font-display text-2xl font-extrabold text-[#060B14]">₹</span>
+          </div>
+        </div>
+        <div style={{ ...faceStyle, transform: "rotateY(180deg)" }} className="absolute inset-0 rounded-full overflow-hidden shadow-[0_8px_24px_rgba(212,175,55,0.35)]">
+          <div className="absolute inset-0 bg-gradient-to-br from-[#F1D98A] via-[#D4AF37] to-[#B8860B]" />
+          <div className="absolute inset-[3px] rounded-full border-2 border-[#8a6a1f]/40" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <img src="/logo.png" alt="" className="w-8 h-8 object-contain" />
+          </div>
+        </div>
+      </motion.div>
+    </div>
   )
 }
 
