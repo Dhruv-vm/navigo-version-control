@@ -12,7 +12,6 @@ function parsTimeToMinutes(timeStr: string): number {
 function getDurationMinutes(flight: any): number {
   const dep = parsTimeToMinutes(flight.departure_time || "00:00")
   let arr = parsTimeToMinutes(flight.arrival_time || "00:00")
-  // Handle overnight flights (arrival next day)
   if (arr < dep) arr += 24 * 60
   return arr - dep
 }
@@ -30,11 +29,32 @@ export async function GET(req: Request) {
   const origin = searchParams.get('origin')
   const destination = searchParams.get('destination')
 
+  // ✅ FIXED — frontend sends the outbound date as `depart` (matches roundtrip's
+  // `return` param naming), not `date`. Accept `depart` as primary, fall back
+  // to `date` in case any other caller uses that name.
+  const date = searchParams.get('depart') || searchParams.get('date')
+
+  // ✅ FIXED — a flight search is meaningless without a date, since seat
+  // inventory is per flight_instance, not per flight. Reject early instead
+  // of silently returning every date for the route.
+  if (!date) {
+    return NextResponse.json(
+      { error: 'A travel date is required to search flights.' },
+      { status: 400 }
+    )
+  }
+
   let query = supabase
     .from("flights")
+    // ✅ FIXED — `!inner` makes this an INNER JOIN, so a flight is only
+    // returned if it has a matching flight_instances row. Previously this
+    // was a left join with no date filter, so flights with zero instances
+    // for the searched date (or any date) were still returned, and the code
+    // below just grabbed flight_instances[0] — whatever instance happened
+    // to be first, regardless of the date the user searched.
     .select(`
       *,
-      flight_instances (
+      flight_instances!inner (
         id,
         travel_date,
         available_seats,
@@ -46,6 +66,8 @@ export async function GET(req: Request) {
         fee_amount
       )
     `)
+    // ✅ FIXED — filter the joined instance by the requested date
+    .eq('flight_instances.travel_date', date)
 
   if (origin) query = query.eq('origin', origin)
   if (destination) query = query.eq('destination', destination)
@@ -62,12 +84,12 @@ export async function GET(req: Request) {
 
   // 🔥 STEP 1: Dynamic Pricing
   const enhancedData = data.map((flight) => {
+    // ✅ Safe now — thanks to the inner join + eq filter above, this array
+    // is guaranteed to contain exactly the instance for the searched date.
     const instance = flight.flight_instances?.[0]
+
     const demandFactor = Math.random() * 0.3 + 1
 
-    // ✅ FIXED — don't use `new Date()` on a bare time string for hoursLeft either.
-    // We compare today's date + departure time vs now. If your DB stores a full
-    // travel_date on the instance, use that; otherwise we approximate with today.
     const travelDate = instance?.travel_date
       ? new Date(instance.travel_date)
       : new Date()
@@ -84,7 +106,6 @@ export async function GET(req: Request) {
 
     const final_price = Math.round(flight.base_price * demandFactor * timeFactor)
 
-    // ✅ FIXED — duration is now a human-readable string ("2h 30m"), not NaN milliseconds
     const durationMins = getDurationMinutes(flight)
     const duration = formatDuration(durationMins)
 
@@ -100,12 +121,12 @@ export async function GET(req: Request) {
       tax_amount: instance?.tax_amount,
       fee_amount: instance?.fee_amount,
       final_price,
-      duration,           // ✅ now "2h 30m" instead of NaN
-      duration_minutes: durationMins,  // ✅ keep numeric version for sorting
+      duration,
+      duration_minutes: durationMins,
     }
   })
 
-  // 🔥 STEP 2: Ranking (Best Flights) — use duration_minutes for sorting
+  // 🔥 STEP 2: Ranking (Best Flights)
   const rankedFlights = [...enhancedData].sort((a, b) => {
     const priceWeight = 0.7
     const durationWeight = 0.3
@@ -126,14 +147,6 @@ export async function GET(req: Request) {
     if (flight.id === fastest.id) tags.push("Fastest")
     if (tags.length === 0) tags.push("Recommended")
     return { ...flight, tags }
-  })
-
-  console.log("FIRST FLIGHT sample:", {
-    departure_time: taggedFlights[0]?.departure_time,
-    arrival_time: taggedFlights[0]?.arrival_time,
-    duration: taggedFlights[0]?.duration,
-    duration_minutes: taggedFlights[0]?.duration_minutes,
-    final_price: taggedFlights[0]?.final_price,
   })
 
   return NextResponse.json(taggedFlights)
