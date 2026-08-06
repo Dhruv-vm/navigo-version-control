@@ -402,48 +402,18 @@ export default function PaymentPage() {
 
       <div className="grid grid-cols-12 gap-6">
         <div className="col-span-12 lg:col-span-5 space-y-4">
-          <FlightSummaryCard flight={departFlight} tag={isRoundTrip ? "Departure" : undefined} />
-          {isRoundTrip && <FlightSummaryCard flight={returnFlight} tag="Return" />}
-
-          {selection.savedPassengers && selection.savedPassengers.length > 0 && (
-            <div className="bg-white/[0.02] border border-white/[0.08] rounded-2xl p-5">
-              <p className="text-[11px] uppercase tracking-widest text-slate-500 mb-2.5">Passengers</p>
-              <div className="space-y-1.5">
-                {selection.savedPassengers.map((p, i) => (
-                  <p key={i} className="text-sm text-slate-200">{passengerDisplayName(p)}</p>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {selection.addons && selection.addons.length > 0 && (
-            <div className="bg-white/[0.02] border border-white/[0.08] rounded-2xl p-5">
-              <p className="text-[11px] uppercase tracking-widest text-slate-500 mb-2.5">Add-ons</p>
-              <div className="space-y-2">
-                {selection.addons.map((a) => (
-                  <div key={a.id} className="flex items-center justify-between text-sm">
-                    <span className="text-slate-300">{a.title} <span className="text-slate-600">· {a.variant}</span></span>
-                    <span className="text-slate-200 tabular-nums">{formatINR(a.price)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="relative bg-gradient-to-b from-[#0D1A2C] to-[#0A1424] border border-[#D4AF37]/15 rounded-2xl overflow-hidden ticket-edge">
-            <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-blue-400 via-amber-400 to-amber-300" />
-            <div className="px-5 py-4 space-y-2 text-sm">
-              <p className="text-[11px] uppercase tracking-widest text-slate-500 mb-1">Fare Breakdown</p>
-              <div className="flex justify-between"><span className="text-slate-400">Base Fare</span><span className="text-slate-200 tabular-nums">{formatINR(baseFare)}</span></div>
-              <div className="flex justify-between"><span className="text-slate-400">Taxes & Fees</span><span className="text-slate-200 tabular-nums">{formatINR(taxesAndFees)}</span></div>
-              <div className="flex justify-between"><span className="text-slate-400">Seat Selection</span><span className="text-slate-200 tabular-nums">{formatINR(seatSelectionPrice)}</span></div>
-              <div className="flex justify-between"><span className="text-slate-400">Add-ons Total</span><span className="text-emerald-300 tabular-nums">{formatINR(addonsTotal)}</span></div>
-            </div>
-            <div className="px-5 py-4 border-t border-white/[0.06] flex items-end justify-between">
-              <span className="text-sm text-slate-400">Amount to Pay</span>
-              <span className="font-display text-2xl font-extrabold text-amber-300 tabular-nums">{formatINR(tripTotal)}</span>
-            </div>
-          </div>
+          <ItinerarySummaryCard
+            departFlight={departFlight}
+            returnFlight={returnFlight}
+            isRoundTrip={isRoundTrip}
+            passengers={selection.savedPassengers}
+            addons={selection.addons}
+            baseFare={baseFare}
+            taxesAndFees={taxesAndFees}
+            seatSelectionPrice={seatSelectionPrice}
+            addonsTotal={addonsTotal}
+            tripTotal={tripTotal}
+          />
 
           <SecurityBadges />
         </div>
@@ -644,26 +614,159 @@ function HoldTimer({ msLeft, holdMinutes }: { msLeft: number; holdMinutes: numbe
   )
 }
 
-function FlightSummaryCard({ flight, tag }: { flight: StoredFlight; tag?: "Departure" | "Return" }) {
+// ---------------------------------------------------------------------------
+// ItinerarySummaryCard — replaces the old FlightSummaryCard / passengers box /
+// add-ons box / fare-breakdown box (four separate flat panels of identical
+// visual weight) with one continuous boarding-pass-style card, using the
+// same perforated-divider language as the seat page's SeatSummary so the
+// checkout flow reads as one product instead of an invoice bolted onto the
+// end of it.
+// ---------------------------------------------------------------------------
+
+function PerforatedDivider() {
   return (
-    <div className="relative bg-gradient-to-br from-[#0D1A2C] via-[#0B1729] to-[#0A1424] border border-white/[0.08] rounded-2xl overflow-hidden ticket-edge">
-      <div className={`absolute top-0 left-0 right-0 h-[2px] ${tag === "Return" ? "bg-gradient-to-r from-cyan-400 to-blue-400" : "bg-gradient-to-r from-amber-300 to-amber-500"}`} />
-      <div className="flex items-center gap-3 px-5 py-4">
-        <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center overflow-hidden shadow-sm ring-1 ring-black/5 shrink-0">
-          <img src={airlineLogos[flight.airline] || "/airlines/default.png"} alt={flight.airline} className="w-6 h-6 object-contain" />
+    <div className="relative px-5">
+      <div className="border-t border-dashed border-[#D4AF37]/20" />
+      <span className="absolute -left-3 -top-3 w-6 h-6 rounded-full bg-[#060B14]" />
+      <span className="absolute -right-3 -top-3 w-6 h-6 rounded-full bg-[#060B14]" />
+    </div>
+  )
+}
+
+function FlightLegRow({ flight, tag }: { flight: StoredFlight; tag?: "Departure" | "Return" }) {
+  const isReturn = tag === "Return"
+  return (
+    <div className="flex items-center gap-3.5 px-5 py-4">
+      <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center overflow-hidden shrink-0 ring-1 ring-black/5">
+        <img src={airlineLogos[flight.airline] || "/airlines/default.png"} alt={flight.airline} className="w-5 h-5 object-contain" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1.5">
+          {tag && (
+            <span className={`text-[9px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 border ${
+              isReturn ? "text-cyan-300 bg-cyan-400/10 border-cyan-400/20" : "text-amber-300 bg-amber-400/10 border-amber-400/20"
+            }`}>{tag}</span>
+          )}
+          <span className="text-xs font-medium text-slate-300">{flight.airline}</span>
+          <span className="text-[10px] text-slate-600 font-mono">{deriveFlightNumber(flight.airline, flight.flight_instance_id)}</span>
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            {tag && (
-              <span className={`text-[9px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 border ${tag === "Departure" ? "text-amber-300 bg-amber-400/10 border-amber-400/20" : "text-cyan-300 bg-cyan-400/10 border-cyan-400/20"}`}>{tag}</span>
-            )}
-            <p className="font-semibold text-sm truncate">{flight.airline}</p>
-          </div>
-          <p className="text-xs text-slate-500 truncate">
-            {flight.origin} {formatTime(flight.departure_time)} → {flight.destination} {formatTime(flight.arrival_time)}
-          </p>
+        <div className="flex items-center gap-2">
+          <span className="font-display text-[15px] font-bold text-white tabular-nums">{flight.origin}</span>
+          <span className="text-[10px] text-slate-500 tabular-nums shrink-0">{formatTime(flight.departure_time)}</span>
+          <span className="flex-1 flex items-center gap-1 min-w-[20px]">
+            <span className="w-1 h-1 rounded-full bg-slate-600 shrink-0" />
+            <span className="flex-1 h-px bg-gradient-to-r from-slate-600 to-[#D4AF37]/50" />
+            <span aria-hidden className="text-[#D4AF37] text-[10px]">✈</span>
+            <span className="flex-1 h-px bg-gradient-to-r from-[#D4AF37]/50 to-slate-600" />
+            <span className="w-1 h-1 rounded-full bg-[#D4AF37] shrink-0" />
+          </span>
+          <span className="text-[10px] text-slate-500 tabular-nums shrink-0">{formatTime(flight.arrival_time)}</span>
+          <span className="font-display text-[15px] font-bold text-white tabular-nums">{flight.destination}</span>
         </div>
       </div>
+    </div>
+  )
+}
+
+function PassengerRow({ passengers }: { passengers: NonNullable<CheckoutSelection["savedPassengers"]> }) {
+  return (
+    <div className="px-5 py-4">
+      <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-2.5">Passengers · {passengers.length}</p>
+      <div className="flex flex-wrap gap-2">
+        {passengers.map((p, i) => (
+          <div key={i} className="flex items-center gap-2 pl-1 pr-3 py-1 rounded-full bg-white/[0.03] border border-white/[0.08]">
+            <span className="w-6 h-6 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/30 flex items-center justify-center text-[10px] font-bold text-[#E8C766] shrink-0">
+              {passengerDisplayName(p).slice(0, 1).toUpperCase()}
+            </span>
+            <span className="text-xs text-slate-200">{passengerDisplayName(p)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function AddonsRow({ addons }: { addons: StoredAddon[] }) {
+  return (
+    <div className="px-5 py-4">
+      <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-2.5">Add-ons</p>
+      <div className="space-y-1.5">
+        {addons.map((a) => (
+          <div key={a.id} className="flex items-center justify-between text-xs">
+            <span className="text-slate-400">{a.title} <span className="text-slate-600">· {a.variant}</span></span>
+            <span className="text-slate-300 tabular-nums">{formatINR(a.price)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function FareBreakdownSection({
+  baseFare, taxesAndFees, seatSelectionPrice, addonsTotal, tripTotal,
+}: { baseFare: number; taxesAndFees: number; seatSelectionPrice: number; addonsTotal: number; tripTotal: number }) {
+  return (
+    <div className="px-5 pt-4 pb-5">
+      <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-2.5">Fare Breakdown</p>
+      <div className="space-y-1.5 text-[12px] mb-4">
+        <div className="flex justify-between"><span className="text-slate-500">Base Fare</span><span className="text-slate-400 tabular-nums">{formatINR(baseFare)}</span></div>
+        <div className="flex justify-between"><span className="text-slate-500">Taxes & Fees</span><span className="text-slate-400 tabular-nums">{formatINR(taxesAndFees)}</span></div>
+        {seatSelectionPrice > 0 && (
+          <div className="flex justify-between"><span className="text-slate-500">Seat Selection</span><span className="text-slate-400 tabular-nums">{formatINR(seatSelectionPrice)}</span></div>
+        )}
+        {addonsTotal > 0 && (
+          <div className="flex justify-between"><span className="text-slate-500">Add-ons Total</span><span className="text-emerald-400/80 tabular-nums">{formatINR(addonsTotal)}</span></div>
+        )}
+      </div>
+      <div className="border border-blue-400/25 bg-blue-500/[0.07] rounded-xl px-4 py-3.5 flex items-end justify-between">
+        <span className="text-sm text-slate-300">Amount to Pay</span>
+        <span className="font-display text-[28px] leading-none font-extrabold tabular-nums text-[#E8C766]">{formatINR(tripTotal)}</span>
+      </div>
+    </div>
+  )
+}
+
+function ItinerarySummaryCard({
+  departFlight, returnFlight, isRoundTrip, passengers, addons,
+  baseFare, taxesAndFees, seatSelectionPrice, addonsTotal, tripTotal,
+}: {
+  departFlight: StoredFlight
+  returnFlight: StoredFlight | null
+  isRoundTrip: boolean
+  passengers: CheckoutSelection["savedPassengers"]
+  addons: StoredAddon[] | undefined
+  baseFare: number; taxesAndFees: number; seatSelectionPrice: number; addonsTotal: number; tripTotal: number
+}) {
+  return (
+    <div className="relative bg-gradient-to-b from-[#0D1A2C] to-[#0A1424] border border-[#D4AF37]/15 rounded-2xl overflow-hidden ticket-edge">
+      <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-blue-400 via-amber-400 to-amber-300" />
+      <FlightLegRow flight={departFlight} tag={isRoundTrip ? "Departure" : undefined} />
+      {isRoundTrip && returnFlight && (
+        <>
+          <PerforatedDivider />
+          <FlightLegRow flight={returnFlight} tag="Return" />
+        </>
+      )}
+      {passengers && passengers.length > 0 && (
+        <>
+          <PerforatedDivider />
+          <PassengerRow passengers={passengers} />
+        </>
+      )}
+      {addons && addons.length > 0 && (
+        <>
+          <PerforatedDivider />
+          <AddonsRow addons={addons} />
+        </>
+      )}
+      <PerforatedDivider />
+      <FareBreakdownSection
+        baseFare={baseFare}
+        taxesAndFees={taxesAndFees}
+        seatSelectionPrice={seatSelectionPrice}
+        addonsTotal={addonsTotal}
+        tripTotal={tripTotal}
+      />
     </div>
   )
 }
