@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react"
+import { useEffect, useState, useRef, type MouseEvent as ReactMouseEvent } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import Navbar from "@/components/navbar"
 import FlightCard from "@/components/FlightCard"
@@ -125,6 +125,23 @@ export default function FlightsPage() {
   const editRipple = useRipple()
   const continueRipple = useRipple()
 
+  // ✅ FIX: the tab used to switch to "Return" in the SAME click that set
+  // the departure selection, so the just-clicked card's selected-state
+  // highlight never had a frame to render before the whole list swapped
+  // out under it. Clicking felt like it did nothing. Now the highlight
+  // shows first, a toast confirms the pick, and only then do we advance —
+  // same underlying state change, just sequenced so the user can see it.
+  const [advanceToast, setAdvanceToast] = useState(false)
+  const advanceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (advanceTimeoutRef.current) clearTimeout(advanceTimeoutRef.current)
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
+    }
+  }, [])
+
   const triggerReset = () => {
     setSelectedStops(null); setMaxPrice(20000); setSelectedAirlines([])
     setResetShake(true)
@@ -173,6 +190,22 @@ export default function FlightsPage() {
     setSelectedStops(null)
     setSelectedAirlines([])
     setMaxPrice(20000)
+  }
+
+  // ✅ New: selecting the departure flight now shows the pick, waits a
+  // beat, then advances — instead of instantly cutting to the Return tab.
+  const selectDepartureAndAdvance = (flight: any) => {
+    setSelectedDepartFlight(flight)
+    if (mode !== "roundtrip") return
+
+    if (advanceTimeoutRef.current) clearTimeout(advanceTimeoutRef.current)
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
+
+    setAdvanceToast(true)
+    advanceTimeoutRef.current = setTimeout(() => {
+      switchTab("return")
+      toastTimeoutRef.current = setTimeout(() => setAdvanceToast(false), 900)
+    }, 550)
   }
 
   const applyFilters = (flights: any[]) => {
@@ -330,6 +363,14 @@ export default function FlightsPage() {
             style={{ top: `${p.top}%`, left: `${p.left}%` }} />
         ))}
       </div>
+
+      {/* ✅ New: confirms the departure pick before the view advances */}
+      {advanceToast && (
+        <div className="select-toast fixed top-24 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-2.5 px-4 py-2.5 rounded-full bg-emerald-400/15 border border-emerald-400/30 text-emerald-200 text-sm shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md">
+          <span className="w-5 h-5 rounded-full bg-emerald-400/25 flex items-center justify-center text-emerald-300 text-[11px] shrink-0">✓</span>
+          Departure selected — loading return flights…
+        </div>
+      )}
 
       <div className="relative z-10">
         <Navbar />
@@ -648,8 +689,7 @@ export default function FlightsPage() {
                       isCheapest={!!cheapestFlight && cheapestFlight.id === flight.id}
                       onSelect={() => {
                         if (activeTab === "departure") {
-                          setSelectedDepartFlight(flight)
-                          if (mode === "roundtrip") switchTab("return")
+                          selectDepartureAndAdvance(flight)
                         } else {
                           setSelectedReturnFlight(flight)
                         }
@@ -910,11 +950,18 @@ export default function FlightsPage() {
         @keyframes viewOutLeft { to { opacity: 0; transform: translateX(-3%); } }
         @keyframes viewInRight { from { opacity: 0; transform: translateX(3%); } to { opacity: 1; transform: translateX(0); } }
 
+        /* ── Departure-selected confirmation toast ── */
+        @keyframes toastSlideIn {
+          from { opacity: 0; transform: translate(-50%, -10px); }
+          to   { opacity: 1; transform: translate(-50%, 0); }
+        }
+        .select-toast { animation: toastSlideIn 220ms cubic-bezier(0.22,1,0.36,1) both; }
+
         @media (prefers-reduced-motion: reduce) {
           .fade-up, .custom-radio-dot, .custom-checkbox-tick,
           .page-enter, .topbar-enter, .filters-slide-in, .insights-fade-in,
           .reset-shake, .reset-spin, .ripple, .bottombar-enter, .total-pop,
-          .skeleton-card {
+          .skeleton-card, .select-toast {
             animation: none !important; transition: none !important;
           }
           .page-enter { opacity: 1; transform: none; }

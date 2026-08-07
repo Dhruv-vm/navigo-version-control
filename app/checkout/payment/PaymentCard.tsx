@@ -116,7 +116,7 @@ export function PaymentCard({
             <div className="relative h-full flex flex-col justify-between p-6">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-2">
-                  <img src="/logo.png" alt="" className="w-5 h-5 object-contain shrink-0" />
+                  <img src="/logo.png" alt="" className="w-7 h-7 object-contain shrink-0" />
                   <div>
                     <p className="font-display text-[15px] font-extrabold tracking-[0.08em] text-[#E8C766] leading-none">NAVIGO ELITE</p>
                     <p className="text-[9px] tracking-[0.2em] text-slate-400 mt-1">PREMIUM MEMBER</p>
@@ -223,7 +223,7 @@ export function PaymentCard({
               <BrandMark brand={brand} compact />
             </div>
             <div className="absolute bottom-5 left-6 flex items-center gap-1.5">
-              <img src="/logo.png" alt="" className="w-3.5 h-3.5 object-contain opacity-70" />
+              <img src="/logo.png" alt="" className="w-5 h-5 object-contain opacity-70" />
               <p className="font-display text-[11px] font-extrabold tracking-[0.08em] text-[#E8C766]/70">NAVIGO ELITE</p>
             </div>
           </div>

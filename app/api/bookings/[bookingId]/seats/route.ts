@@ -67,8 +67,9 @@ function cabinClassFromSeatId(seatId: string): string | null {
 }
 
 // Adds `count` seats back to flight_instances.<cabin column> for one
-// (flightInstanceId, cabinClass). Used both by the expired-hold sweep and
-// by the "restore this booking's own prior picks" step.
+// (flightInstanceId, cabinClass). Used by the expired-hold sweep, the
+// "restore this booking's own prior picks" step, and the DELETE
+// (release-seats) handler below.
 async function restoreSeats(flightInstanceId: string, cabinClass: string, count: number) {
   if (count <= 0) return { error: null as string | null }
   const column = CABIN_COLUMN[cabinClass]
@@ -346,10 +347,7 @@ export async function POST(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
-// ── APPEND THIS to the bottom of app/api/bookings/[bookingId]/seats/route.ts ──
-// Uses the same `supabase` and `NextResponse` imports already at the top of
-// that file — nothing new to import.
-//
+
 // GET /api/bookings/[bookingId]/seats
 //
 // Returns the real seat assignments for a booking, keyed by
@@ -388,6 +386,77 @@ export async function GET(
     })
   } catch (err) {
     console.error("SEATS GET (by booking) SERVER ERROR:", err)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}
+
+// DELETE /api/bookings/[bookingId]/seats
+//
+// Releases every seat this (still-draft) booking currently holds: deletes
+// its booking_seats rows and restores the seat-count columns those rows
+// had decremented (same restoreSeats() helper used above). Called from
+// "Edit Flight" on the add-ons/payment pages so a traveler who backs out
+// to search again doesn't leave seats locked for the full 15-minute hold
+// window — they're freed immediately for other travelers.
+//
+// Deliberately does NOT touch bookings.status or bookings.hold_expires_at:
+// this only releases seats, it doesn't cancel the draft booking itself,
+// since the traveler may come back and pick a new flight for the same
+// booking rather than starting over entirely.
+
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ bookingId: string }> }
+) {
+  try {
+    const { bookingId } = await params
+    if (!bookingId) {
+      return NextResponse.json({ error: "Missing booking id" }, { status: 400 })
+    }
+
+    const { data: ownSeats, error: ownSeatsError } = await supabase
+      .from("booking_seats")
+      .select("flight_instance_id, cabin_class")
+      .eq("booking_id", bookingId)
+
+    if (ownSeatsError) {
+      console.error("SEATS RELEASE - LOOKUP ERROR:", ownSeatsError)
+      return NextResponse.json({ error: ownSeatsError.message }, { status: 500 })
+    }
+
+    if (!ownSeats || ownSeats.length === 0) {
+      // Nothing held — not an error, just nothing to release.
+      return NextResponse.json({ released: 0 })
+    }
+
+    // Restore the seat-count columns these rows had decremented, grouped
+    // by (flight_instance_id, cabin_class) — same tally pattern used by
+    // the expired-hold sweep and own-prior-picks restore in POST above.
+    const tally = new Map<string, number>()
+    for (const row of ownSeats) {
+      if (!row.cabin_class) continue // pre-migration rows have no cabin_class — can't safely restore, skip
+      const key = `${row.flight_instance_id}::${row.cabin_class}`
+      tally.set(key, (tally.get(key) || 0) + 1)
+    }
+    for (const [key, count] of tally.entries()) {
+      const [flightInstanceId, cabinClass] = key.split("::")
+      const { error } = await restoreSeats(flightInstanceId, cabinClass, count)
+      if (error) console.error("SEATS RELEASE - RESTORE ERROR:", error)
+    }
+
+    const { error: deleteError } = await supabase
+      .from("booking_seats")
+      .delete()
+      .eq("booking_id", bookingId)
+
+    if (deleteError) {
+      console.error("SEATS RELEASE - DELETE ERROR:", deleteError)
+      return NextResponse.json({ error: deleteError.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ released: ownSeats.length })
+  } catch (err) {
+    console.error("SEATS RELEASE SERVER ERROR:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

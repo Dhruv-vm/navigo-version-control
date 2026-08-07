@@ -35,6 +35,23 @@ type CheckoutSelection = {
 
 const STORAGE_KEY = "navigo:checkoutSelection"
 
+// Rebuilds the original /flights search query from the stored selection —
+// same field names the selection was already saved with (origin,
+// destination, travel_date, passengers, mode). Param names below match
+// what app/api/flights/route.ts actually reads (`depart`/`return`, per its
+// own comment about matching that naming convention) — confirmed against
+// that route directly, not guessed.
+function buildFlightSearchUrl(selection: CheckoutSelection): string {
+  const params = new URLSearchParams()
+  if (selection.origin) params.set("origin", selection.origin)
+  if (selection.destination) params.set("destination", selection.destination)
+  if (selection.departFlight?.travel_date) params.set("depart", selection.departFlight.travel_date)
+  if (selection.returnFlight?.travel_date) params.set("return", selection.returnFlight.travel_date)
+  params.set("passengers", String(selection.passengers))
+  if (selection.mode) params.set("mode", selection.mode)
+  return `/flights?${params.toString()}`
+}
+
 const airlineLogos: Record<string, string> = {
   "IndiGo": "/airlines/indigo.png",
   "Air India": "/airlines/airindia.png",
@@ -56,7 +73,9 @@ type Addon = {
   // Local asset path, same convention as airlineLogos / the seat-pod PNGs
   // elsewhere in this app. Missing or 404-ing gracefully falls back to an
   // icon illustration (see AddonHero) — drop real photos into
-  // /public/addons/ and they'll pick up automatically, nothing else to wire up.
+  // /public/addons/ (baggage.svg, legroom.svg, meal.svg, lounge.svg,
+  // priority.svg, insurance.svg, wifi.svg, fasttrack.svg) and they'll pick
+  // up automatically, nothing else to wire up.
   image?: string
   discountPct?: number
   variants: AddonVariant[]
@@ -75,7 +94,7 @@ const RECOMMENDED_ADDONS: Addon[] = [
     desc: "Add more baggage allowance to your trip.",
     icon: "🧳",
     category: "baggage",
-    image: "/addons/baggage.jpg",
+    image: "/addons/baggage.svg",
     discountPct: 20,
     variants: [
       { label: "10 kg", price: 600, originalPrice: 750 },
@@ -89,7 +108,7 @@ const RECOMMENDED_ADDONS: Addon[] = [
     desc: "More legroom for extra comfort.",
     icon: "💺",
     category: "comfort",
-    image: "/addons/legroom.jpg",
+    image: "/addons/legroom.svg",
     discountPct: 15,
     variants: [{ label: "1 Seat", price: 1700, originalPrice: 2000 }],
   },
@@ -99,7 +118,7 @@ const RECOMMENDED_ADDONS: Addon[] = [
     desc: "Enjoy a wide range of meal options.",
     icon: "🍽️",
     category: "meals",
-    image: "/addons/meal.jpg",
+    image: "/addons/meal.svg",
     discountPct: 10,
     variants: [{ label: "1 Meal", price: 360, originalPrice: 400 }],
   },
@@ -109,18 +128,23 @@ const RECOMMENDED_ADDONS: Addon[] = [
     desc: "Relax in premium airport lounges.",
     icon: "🛋️",
     category: "airport",
-    image: "/addons/lounge.jpg",
+    image: "/addons/lounge.svg",
     discountPct: 20,
     variants: [{ label: "1 Lounge", price: 960, originalPrice: 1200 }],
   },
 ]
 
+// ✅ UI FIX: gave each "More Add-ons" entry a discountPct-free hero treatment
+// (image/icon field) so AddonMiniCard can reuse the same AddonHero component
+// as the recommended cards above — previously this section was flat
+// icon-in-a-box rows while RECOMMENDED_ADDONS got full illustrated cards,
+// which read as two different design systems stacked on one page.
 const MORE_ADDONS: Addon[] = [
-  { id: "priority", title: "Priority Boarding", desc: "Be among the first to board.", icon: "🚶", category: "airport", variants: [{ label: "Add", price: 500 }] },
-  { id: "insurance", title: "Travel Insurance", desc: "Protect your trip from uncertainties.", icon: "🛡️", category: "insurance", variants: [{ label: "Add", price: 700 }] },
-  { id: "wifi", title: "Wi-Fi Onboard", desc: "Stay connected in the sky.", icon: "📶", category: "essentials", variants: [{ label: "Add", price: 250 }] },
-  { id: "baggage10", title: "Extra Baggage (10kg)", desc: "Add extra 10kg baggage.", icon: "🧳", category: "baggage", variants: [{ label: "Add", price: 600 }] },
-  { id: "fasttrack", title: "Airport Fast Track", desc: "Skip the queues and save time.", icon: "🏃", category: "airport", variants: [{ label: "Add", price: 800 }] },
+  { id: "priority", title: "Priority Boarding", desc: "Be among the first to board.", icon: "🚶", category: "airport", image: "/addons/priority.svg", variants: [{ label: "Add", price: 500 }] },
+  { id: "insurance", title: "Travel Insurance", desc: "Protect your trip from uncertainties.", icon: "🛡️", category: "insurance", image: "/addons/insurance.svg", variants: [{ label: "Add", price: 700 }] },
+  { id: "wifi", title: "Wi-Fi Onboard", desc: "Stay connected in the sky.", icon: "📶", category: "essentials", image: "/addons/wifi.svg", variants: [{ label: "Add", price: 250 }] },
+  { id: "baggage10", title: "Extra Baggage (10kg)", desc: "Add extra 10kg baggage.", icon: "🧳", category: "baggage", image: "/addons/baggage.svg", variants: [{ label: "Add", price: 600 }] },
+  { id: "fasttrack", title: "Airport Fast Track", desc: "Skip the queues and save time.", icon: "🏃", category: "airport", image: "/addons/fasttrack.svg", variants: [{ label: "Add", price: 800 }] },
 ]
 
 const ALL_ADDONS = [...RECOMMENDED_ADDONS, ...MORE_ADDONS]
@@ -273,6 +297,36 @@ export default function AddonsPage() {
     router.push("/checkout/payment")
   }
 
+  async function handleEditFlight() {
+    if (!selection?.bookingId) {
+      router.push(buildFlightSearchUrl(selection!))
+      return
+    }
+    try {
+      // Releases this booking's booking_seats rows for its flight
+      // instances (and restores the seat-count columns those rows had
+      // decremented) so the seats are actually free for other travelers
+      // immediately, rather than sitting locked until the 15-minute hold
+      // naturally expires.
+      await fetch(`/api/bookings/${selection.bookingId}/seats`, { method: "DELETE" })
+
+      // ✅ FIX: the release above only touches the DB — sessionStorage
+      // still had the old holdExpiresAt / seatSelectionPrice, so hitting
+      // Back after editing landed back on this page still counting down a
+      // timer for seats that were already released. Strip both before
+      // navigating so a Back-navigation reads a selection with no stale
+      // hold info (HoldTimer only renders when holdExpiresAt is present).
+      const { holdExpiresAt, seatSelectionPrice, ...rest } = selection
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(rest))
+    } catch (err) {
+      console.warn("Failed to release held seats before editing flight:", err)
+      // Navigate anyway — worst case the hold expires on its own in the
+      // usual 15 minutes; we don't want a failed release to trap the
+      // traveler on this page.
+    }
+    router.push(buildFlightSearchUrl(selection))
+  }
+
   if (loadState === "loading") {
     return <PageShell><CenteredMessage text="Preparing add-ons…" /></PageShell>
   }
@@ -312,8 +366,8 @@ export default function AddonsPage() {
       </div>
 
       <div className={`transition-all duration-500 ease-out ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}`}>
-        <FlightSummaryCard flight={departFlight} tag={isRoundTrip ? "Departure" : undefined} />
-        {isRoundTrip && <div className="mt-3"><FlightSummaryCard flight={returnFlight} tag="Return" /></div>}
+        <FlightSummaryCard flight={departFlight} tag={isRoundTrip ? "Departure" : undefined} onEditFlight={handleEditFlight} />
+        {isRoundTrip && <div className="mt-3"><FlightSummaryCard flight={returnFlight} tag="Return" onEditFlight={handleEditFlight} /></div>}
       </div>
 
       <div className="grid grid-cols-12 gap-6 mt-6">
@@ -356,15 +410,27 @@ export default function AddonsPage() {
 
               <div>
                 <p className="font-display text-lg font-bold text-white mb-3">More Add-ons For You</p>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {MORE_ADDONS.map((addon) => (
-                    <AddonMiniCard
-                      key={addon.id}
-                      addon={addon}
-                      isSelected={addon.id in chosen}
-                      onToggle={() => toggleAddon(addon, 0)}
-                    />
-                  ))}
+                {/* ✅ LAYOUT FIX: 5 cards in a 3-col grid left an uneven last
+                    row (2 cards + a dead gap where the 6th would be) — the
+                    exact "positional" wrongness being flagged. A horizontal
+                    scroll strip has no row-count constraint, so it never
+                    leaves a gap regardless of how many add-ons exist, and
+                    reads as a deliberate "browse more" rail instead of a
+                    grid that ran out of items. */}
+                <div className="relative -mx-6 px-6">
+                  <div className="flex gap-3.5 overflow-x-auto pb-1 no-scrollbar snap-x snap-mandatory">
+                    {MORE_ADDONS.map((addon) => (
+                      <div key={addon.id} className="w-[200px] sm:w-[212px] shrink-0 snap-start">
+                        <AddonMiniCard
+                          addon={addon}
+                          isSelected={addon.id in chosen}
+                          onToggle={() => toggleAddon(addon, 0)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  {/* fade hint that more cards continue off-screen */}
+                  <div className="pointer-events-none absolute top-0 bottom-1 right-6 w-10 bg-gradient-to-l from-[#060B14] to-transparent" aria-hidden />
                 </div>
               </div>
             </>
@@ -537,16 +603,18 @@ function CategoryChips({ active, onChange }: { active: CategoryId; onChange: (id
 // ---------------------------------------------------------------------------
 // AddonHero — real photo when available, graceful icon-illustration
 // fallback when not (missing path or 404). Drop files into /public/addons/
-// (baggage.jpg, legroom.jpg, meal.jpg, lounge.jpg) and they appear
-// automatically — nothing else to wire up.
+// (baggage.jpg, legroom.jpg, meal.jpg, lounge.jpg, priority.jpg,
+// insurance.jpg, wifi.jpg, fasttrack.jpg) and they appear automatically —
+// nothing else to wire up. `compact` shrinks the hero for the smaller
+// "More Add-ons" grid without duplicating the component.
 // ---------------------------------------------------------------------------
 
-function AddonHero({ addon }: { addon: Addon }) {
+function AddonHero({ addon, compact = false }: { addon: Addon; compact?: boolean }) {
   const [imgFailed, setImgFailed] = useState(false)
   const showImage = !!addon.image && !imgFailed
 
   return (
-    <div className="relative h-28 overflow-hidden bg-gradient-to-br from-[#0D1A2C] to-[#0A1424]">
+    <div className={`relative overflow-hidden bg-gradient-to-br from-[#0D1A2C] to-[#0A1424] ${compact ? "h-16" : "h-28"}`}>
       {showImage ? (
         <img
           src={addon.image}
@@ -557,7 +625,7 @@ function AddonHero({ addon }: { addon: Addon }) {
       ) : (
         <>
           <div className="pointer-events-none absolute inset-0 opacity-70 bg-[radial-gradient(circle_at_50%_35%,rgba(212,175,55,0.16),transparent_65%)]" aria-hidden />
-          <div className="absolute inset-0 flex items-center justify-center text-4xl">{addon.icon}</div>
+          <div className={`absolute inset-0 flex items-center justify-center ${compact ? "text-2xl" : "text-4xl"}`}>{addon.icon}</div>
         </>
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-[#0A1424] via-transparent to-transparent" />
@@ -631,30 +699,35 @@ function AddonCard({ addon, isSelected, variantIndex, onToggle, onVariantChange 
 }
 
 // ---------------------------------------------------------------------------
-// AddonMiniCard — the smaller "More Add-ons" row.
+// AddonMiniCard — the smaller "More Add-ons" row. ✅ UI FIX: now reuses the
+// same AddonHero illustration used by the recommended cards (compact size)
+// instead of a flat icon-in-a-box, so this section reads as the same
+// product as "Recommended For You" above it rather than a plain fallback
+// list. Add button also switched to the shared `pill-cta` gradient so the
+// call-to-action matches everywhere else on the page.
 // ---------------------------------------------------------------------------
 
 function AddonMiniCard({ addon, isSelected, onToggle }: { addon: Addon; isSelected: boolean; onToggle: () => void }) {
   const variant = addon.variants[0]
   return (
-    <div className={`rounded-xl border p-3.5 transition-all duration-200 ${
+    <div className={`rounded-xl border overflow-hidden transition-all duration-200 ${
       isSelected ? "border-amber-400/50 bg-amber-400/[0.06]" : "border-white/[0.08] bg-white/[0.02] hover:border-white/20 hover:-translate-y-0.5"
     }`}>
-      <span className="w-9 h-9 rounded-lg bg-white/[0.05] border border-white/[0.08] flex items-center justify-center text-base">
-        {addon.icon}
-      </span>
-      <p className="text-xs font-semibold text-white mt-2.5">{addon.title}</p>
-      <p className="text-[11px] text-slate-500 mt-0.5 mb-2.5 leading-snug">{addon.desc}</p>
-      <div className="flex items-center justify-between">
-        <span className="font-display text-xs font-bold text-amber-300 tabular-nums">{formatINR(variant.price)}</span>
-        <button
-          onClick={onToggle}
-          className={`text-[11px] px-2.5 py-1 rounded-full font-semibold transition-colors ${
-            isSelected ? "bg-white/[0.06] text-amber-300 border border-amber-300/40" : "pill-cta"
-          }`}
-        >
-          {isSelected ? "Added ✓" : "+ Add"}
-        </button>
+      <AddonHero addon={addon} compact />
+      <div className="p-3">
+        <p className="text-xs font-semibold text-white truncate">{addon.title}</p>
+        <p className="text-[11px] text-slate-500 mt-0.5 mb-2.5 leading-snug line-clamp-2">{addon.desc}</p>
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-display text-xs font-bold text-amber-300 tabular-nums shrink-0">{formatINR(variant.price)}</span>
+          <button
+            onClick={onToggle}
+            className={`text-[11px] px-2.5 py-1.5 rounded-full font-semibold transition-colors shrink-0 ${
+              isSelected ? "bg-white/[0.06] text-amber-300 border border-amber-300/40" : "pill-cta"
+            }`}
+          >
+            {isSelected ? "Added ✓" : "+ Add"}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -664,7 +737,7 @@ function AddonMiniCard({ addon, isSelected, onToggle }: { addon: Addon; isSelect
 // FlightSummaryCard
 // ---------------------------------------------------------------------------
 
-function FlightSummaryCard({ flight, tag }: { flight: StoredFlight; tag?: "Departure" | "Return" }) {
+function FlightSummaryCard({ flight, tag, onEditFlight }: { flight: StoredFlight; tag?: "Departure" | "Return"; onEditFlight?: () => void }) {
   return (
     <div className="relative bg-gradient-to-br from-[#0D1A2C] via-[#0B1729] to-[#0A1424] border border-white/[0.08] rounded-2xl overflow-hidden ticket-edge">
       <div className={`absolute top-0 left-0 right-0 h-[2px] ${tag === "Return" ? "bg-gradient-to-r from-cyan-400 to-blue-400" : "bg-gradient-to-r from-amber-300 to-amber-500"}`} />
@@ -703,7 +776,10 @@ function FlightSummaryCard({ flight, tag }: { flight: StoredFlight; tag?: "Depar
             <p className="font-display text-xl font-extrabold tabular-nums">{formatTime(flight.arrival_time)}</p>
             <p className="text-[11px] text-slate-500">{flight.destination}</p>
           </div>
-          <button className="text-xs text-cyan-300 hover:text-cyan-200 transition-colors flex items-center gap-1 shrink-0">
+          <button
+            onClick={onEditFlight}
+            className="text-xs text-cyan-300 hover:text-cyan-200 transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
+          >
             <span aria-hidden>✎</span> Edit Flight
           </button>
         </div>
@@ -713,7 +789,28 @@ function FlightSummaryCard({ flight, tag }: { flight: StoredFlight; tag?: "Depar
 }
 
 // ---------------------------------------------------------------------------
-// TripSummary — now collapsible, addon rows carry a green "added" check.
+// PerforatedDivider — same punch-hole boarding-pass motif used on the seats
+// and payment pages, dropped in here (in place of a plain dashed border) so
+// this sidebar finally reads as the same object across all three checkout
+// pages instead of using three slightly different card styles.
+// ---------------------------------------------------------------------------
+
+function PerforatedDivider() {
+  return (
+    <div className="relative px-5">
+      <div className="border-t border-dashed border-[#D4AF37]/20" />
+      <span className="absolute -left-3 -top-3 w-6 h-6 rounded-full bg-[#060B14]" />
+      <span className="absolute -right-3 -top-3 w-6 h-6 rounded-full bg-[#060B14]" />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// TripSummary — ✅ UI FIX: fare sub-lines demoted (smaller, muted) and
+// "Trip Total" promoted into its own blue-tinted highlight panel, matching
+// the "Amount to Pay" treatment on the payment page, instead of being just
+// another row barely more prominent than "Base Fare" above it. Divider
+// between sections switched to PerforatedDivider to match.
 // ---------------------------------------------------------------------------
 
 function TripSummary({ selection, baseFare, taxesAndFees, seatSelectionPrice, selectedList, addonsTotal, addonsSavings, tripTotal, open, onToggleOpen, onRemoveAddon, onContinue }: {
@@ -731,7 +828,7 @@ function TripSummary({ selection, baseFare, taxesAndFees, seatSelectionPrice, se
         <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-blue-400 via-amber-400 to-amber-300" />
         <button
           onClick={onToggleOpen}
-          className="w-full px-5 py-4 border-b border-white/[0.06] flex items-center justify-between text-left"
+          className="w-full px-5 py-4 flex items-center justify-between text-left"
         >
           <div>
             <p className="font-display text-sm font-semibold text-white">Your Trip Summary</p>
@@ -744,8 +841,9 @@ function TripSummary({ selection, baseFare, taxesAndFees, seatSelectionPrice, se
 
         <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
           <div className="overflow-hidden">
+            <PerforatedDivider />
             <div className="px-5 py-4 space-y-2.5">
-              <p className="text-[11px] uppercase tracking-widest text-slate-500">Add-ons {selectedList.length > 0 && `(${selectedList.length})`}</p>
+              <p className="text-[10px] uppercase tracking-widest text-slate-500">Add-ons {selectedList.length > 0 && `(${selectedList.length})`}</p>
               {selectedList.length === 0 ? (
                 <p className="text-xs text-slate-600 italic">No add-ons selected yet</p>
               ) : (
@@ -767,22 +865,27 @@ function TripSummary({ selection, baseFare, taxesAndFees, seatSelectionPrice, se
               )}
             </div>
 
-            <div className="relative px-5">
-              <div className="border-t border-dashed border-white/[0.14]" />
-            </div>
+            <PerforatedDivider />
 
-            <div className="px-5 py-4 space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-slate-400">Base Fare</span><span className="text-slate-200 tabular-nums">{formatINR(baseFare)}</span></div>
-              <div className="flex justify-between"><span className="text-slate-400">Taxes & Fees</span><span className="text-slate-200 tabular-nums">{formatINR(taxesAndFees)}</span></div>
-              <div className="flex justify-between"><span className="text-slate-400">Seat Selection</span><span className="text-slate-200 tabular-nums">{formatINR(seatSelectionPrice)}</span></div>
-              <div className="flex justify-between"><span className="text-slate-400">Add-ons Total</span><span className="text-emerald-300 tabular-nums">{formatINR(addonsTotal)}</span></div>
+            <div className="px-5 pt-4 pb-1">
+              <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-2.5">Fare Breakdown</p>
+              <div className="space-y-1.5 text-[12px]">
+                <div className="flex justify-between"><span className="text-slate-500">Base Fare</span><span className="text-slate-400 tabular-nums">{formatINR(baseFare)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">Taxes & Fees</span><span className="text-slate-400 tabular-nums">{formatINR(taxesAndFees)}</span></div>
+                {seatSelectionPrice > 0 && (
+                  <div className="flex justify-between"><span className="text-slate-500">Seat Selection</span><span className="text-slate-400 tabular-nums">{formatINR(seatSelectionPrice)}</span></div>
+                )}
+                <div className="flex justify-between"><span className="text-slate-500">Add-ons Total</span><span className="text-emerald-400/80 tabular-nums">{formatINR(addonsTotal)}</span></div>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="px-5 pb-4 pt-4 flex items-end justify-between border-t border-white/[0.06]">
-          <span className="text-sm text-slate-400">Trip Total</span>
-          <span className="font-display text-2xl font-extrabold text-amber-300 tabular-nums">{formatINR(tripTotal)}</span>
+        <div className="px-5 pt-4 pb-4">
+          <div className="border border-blue-400/25 bg-blue-500/[0.07] rounded-xl px-4 py-3.5 flex items-end justify-between">
+            <span className="text-sm text-slate-300">Trip Total</span>
+            <span className="font-display text-[28px] leading-none font-extrabold tabular-nums text-[#E8C766]">{formatINR(tripTotal)}</span>
+          </div>
         </div>
 
         {addonsSavings > 0 && (
@@ -806,9 +909,10 @@ function TripSummary({ selection, baseFare, taxesAndFees, seatSelectionPrice, se
 
 function NavBotTip() {
   return (
-    <div className="bg-gradient-to-br from-cyan-400/[0.06] to-transparent border border-cyan-400/15 rounded-2xl p-5 flex items-start gap-3">
-      <span className="text-2xl shrink-0" aria-hidden>🤖</span>
-      <div>
+    <div className="relative bg-gradient-to-br from-cyan-400/[0.06] to-transparent border border-cyan-400/15 rounded-2xl p-5 flex items-start gap-3 overflow-hidden">
+      <div className="pointer-events-none absolute -bottom-10 -right-10 w-32 h-32 bg-cyan-400/[0.08] blur-[60px] rounded-full" aria-hidden />
+      <span className="w-10 h-10 rounded-full bg-cyan-400/10 border border-cyan-400/20 flex items-center justify-center text-xl shrink-0" aria-hidden>🤖</span>
+      <div className="relative">
         <p className="text-xs font-semibold text-cyan-300">Need help with add-ons?</p>
         <p className="text-sm text-slate-300 mt-1">NavBot is here!</p>
         <button className="text-xs text-cyan-300 hover:text-cyan-200 transition-colors mt-2 border border-cyan-400/25 rounded-full px-3 py-1.5">Chat with NavBot</button>
@@ -972,6 +1076,9 @@ function PageStyles() {
     <style jsx global>{`
       @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&display=swap');
       .font-display { font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.01em; }
+
+      .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+      .no-scrollbar::-webkit-scrollbar { display: none; }
 
       .ticket-edge { position: relative; }
       .ticket-edge::before {

@@ -93,6 +93,22 @@ type SelectionMap = Record<string, string>
 
 const STORAGE_KEY = "navigo:checkoutSelection"
 
+// Rebuilds the original /flights search query from the stored selection —
+// same param names confirmed against app/api/flights/route.ts (`depart` /
+// `return`, not `departDate`/`returnDate`) so "Edit Flight" actually lands
+// on a populated search instead of a blank one. Shared logic with the
+// add-ons page's version of this helper.
+function buildFlightSearchUrl(selection: CheckoutSelection): string {
+  const params = new URLSearchParams()
+  if (selection.origin) params.set("origin", selection.origin)
+  if (selection.destination) params.set("destination", selection.destination)
+  if (selection.departFlight?.travel_date) params.set("depart", selection.departFlight.travel_date)
+  if (selection.returnFlight?.travel_date) params.set("return", selection.returnFlight.travel_date)
+  params.set("passengers", String(selection.passengers))
+  if (selection.mode) params.set("mode", selection.mode)
+  return `/flights?${params.toString()}`
+}
+
 // Same logo map used on the passenger-details page and FlightCard —
 // kept in sync here so the flight info bar shows the real airline logo
 // instead of two-letter initials.
@@ -595,6 +611,26 @@ export default function SeatSelectionPage() {
     }
   }
 
+  // ✅ NEW: Edit Flight — releases any seats this booking already holds
+  // (matters if the traveler saved seats, moved on to add-ons/payment, then
+  // came back here and now wants a different flight entirely) and sends
+  // them back to search with the original query prefilled, same pattern as
+  // the add-ons page's version of this handler.
+  async function handleEditFlight() {
+    if (!selection?.bookingId) {
+      if (selection) router.push(buildFlightSearchUrl(selection))
+      return
+    }
+    try {
+      await fetch(`/api/bookings/${selection.bookingId}/seats`, { method: "DELETE" })
+    } catch (err) {
+      console.warn("Failed to release held seats before editing flight:", err)
+      // Navigate anyway — worst case any hold expires on its own; we don't
+      // want a failed release to trap the traveler on this page.
+    }
+    router.push(buildFlightSearchUrl(selection))
+  }
+
   async function handleContinue() {
     if (!selection?.bookingId || !allSeatsAssigned) return
     setSubmitting(true)
@@ -730,7 +766,7 @@ export default function SeatSelectionPage() {
         </Tabs>
       )}
 
-      <FlightInfoBar flight={activeLegFlight} legLabel={activeLegLabel} />
+      <FlightInfoBar flight={activeLegFlight} legLabel={activeLegLabel} onEditFlight={handleEditFlight} />
 
       <div className="grid grid-cols-12 gap-6 mt-6">
         <div className="col-span-12 lg:col-span-3 space-y-4">
@@ -975,7 +1011,7 @@ function SkipSeatModal({
 // FlightInfoBar
 // ---------------------------------------------------------------------------
 
-function FlightInfoBar({ flight, legLabel }: { flight: StoredFlight; legLabel?: string }) {
+function FlightInfoBar({ flight, legLabel, onEditFlight }: { flight: StoredFlight; legLabel?: string; onEditFlight?: () => void }) {
   return (
     <div>
       {legLabel && (
@@ -1026,7 +1062,10 @@ function FlightInfoBar({ flight, legLabel }: { flight: StoredFlight; legLabel?: 
         </div>
       </div>
 
-      <button className="ml-auto text-xs text-slate-400 hover:text-[#E8C766] transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] hover:border-[#D4AF37]/30 hover:bg-[#D4AF37]/[0.04]">
+      <button
+        onClick={onEditFlight}
+        className="ml-auto text-xs text-slate-400 hover:text-[#E8C766] transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] hover:border-[#D4AF37]/30 hover:bg-[#D4AF37]/[0.04]"
+      >
         Edit flight <span aria-hidden>✎</span>
       </button>
       </div>
@@ -1941,31 +1980,6 @@ function SeatSummary({
           >
             Skip seat selection for now
           </button>
-        </div>
-      </div>
-
-      <div className="bg-gradient-to-b from-[#0D1A2C] to-[#0A1424] border border-[#D4AF37]/15 rounded-2xl p-5">
-        <p className="font-display text-sm font-semibold text-white mb-3">
-          {CABIN_CLASSES.find((c) => c.key === activeCabin)?.label} Benefits
-        </p>
-        <div className="space-y-2.5">
-          {CABIN_PERKS[activeCabin].map((perk) => (
-            <div key={perk.label} className="flex items-start gap-2.5">
-              <span className="text-[#C9A227]/70 text-sm w-4 shrink-0">{perk.icon}</span>
-              <div>
-                <p className="text-[12px] text-slate-200">{perk.label}</p>
-                <p className="text-[11px] text-slate-500">{perk.desc}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3 bg-gradient-to-r from-white/[0.04] to-white/[0.02] border border-white/[0.08] rounded-2xl px-4 py-3.5">
-        <span className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center text-lg shrink-0">🤖</span>
-        <div className="min-w-0 flex-1">
-          <p className="text-[12px] text-white font-medium">Need help choosing a seat?</p>
-          <button className="text-[11px] text-cyan-300 hover:text-cyan-200 transition-colors">Chat with NavBot</button>
         </div>
       </div>
     </div>

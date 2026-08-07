@@ -467,22 +467,29 @@ export default function PaymentPage() {
                         onChange={(e) => setName(e.target.value)}
                         onFocus={() => setFocusedField("name")}
                         onBlur={() => setFocusedField(null)}
-                        placeholder="DHRUV VM"
+                        placeholder="JOHN DOE"
                         className="w-full bg-transparent outline-none text-sm text-white placeholder:text-slate-600 uppercase"
                       />
                     </Field>
 
-                    <Field label="Card Number" error={touchedSubmit ? errors.number : undefined} focused={focusedField === "number"}>
-                      <input
-                        value={numberDigits}
-                        onChange={(e) => setNumberDigits(sanitizeCardNumberInput(e.target.value))}
-                        onFocus={() => setFocusedField("number")}
-                        onBlur={() => setFocusedField(null)}
-                        inputMode="numeric"
-                        placeholder="4111 1111 1111 1111"
-                        className="w-full bg-transparent outline-none text-sm text-white placeholder:text-slate-600 font-mono tracking-wider"
-                      />
-                    </Field>
+                    <div>
+                      <Field label="Card Number" error={touchedSubmit ? errors.number : undefined} focused={focusedField === "number"}>
+                        <input
+                          value={numberDigits}
+                          onChange={(e) => setNumberDigits(sanitizeCardNumberInput(e.target.value))}
+                          onFocus={() => setFocusedField("number")}
+                          onBlur={() => setFocusedField(null)}
+                          inputMode="numeric"
+                          placeholder="4111 1111 1111 1111"
+                          className="w-full bg-transparent outline-none text-sm text-white placeholder:text-slate-600 font-mono tracking-wider"
+                        />
+                      </Field>
+                      <p className="text-[10px] text-slate-500 mt-1.5 pl-1 leading-relaxed">
+                        Sandbox mode — any Luhn-valid number works. Try{" "}
+                        <span className="text-slate-400 font-mono">4111 1111 1111 1111</span> (Visa).
+                        Detected by prefix: Visa (4), Mastercard (51–55), Amex (34, 37), RuPay (60, 65, 81, 82, 508). Outcome is simulated, ~82% success.
+                      </p>
+                    </div>
 
                     <div className="grid grid-cols-2 gap-4">
                       <Field label="Expiry" error={touchedSubmit ? errors.expiry : undefined} focused={focusedField === "expiry"}>
