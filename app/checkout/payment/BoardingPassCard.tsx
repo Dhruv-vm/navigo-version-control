@@ -2,9 +2,9 @@
 
 import { forwardRef } from "react"
 import { motion } from "framer-motion"
+import { QRCodeSVG } from "qrcode.react"
 import { getAirlineTheme } from "./boardingPassThemes"
 import { PseudoBarcode } from "./barcode"
-import { PseudoQr } from "./sandboxQr"
 
 export type PassAddon = { id: string; title: string }
 
@@ -37,6 +37,13 @@ export type BoardingPassCardProps = {
   index?: number
 }
 
+function buildVerifyUrl(pnr: string, legLabel?: string) {
+  const base = typeof window !== "undefined" ? window.location.origin : "https://navigo.app"
+  const params = new URLSearchParams({ pnr })
+  if (legLabel) params.set("leg", legLabel.toLowerCase())
+  return `${base}/verify?${params.toString()}`
+}
+
 export const BoardingPassCard = forwardRef<HTMLDivElement, BoardingPassCardProps>(function BoardingPassCard(
   { pnr, passengerName, airline, logoSrc, origin, destination, dateLabel, timeLabel, gate, flightNumber, seat, legLabel, addons, index = 0 },
   ref
@@ -44,7 +51,7 @@ export const BoardingPassCard = forwardRef<HTMLDivElement, BoardingPassCardProps
   const theme = getAirlineTheme(airline)
   const darkTitle = theme.titleColor === "#FFFFFF"
 
-  const qrSeed = [pnr, passengerName, airline, origin, destination, gate ?? "TBA", flightNumber ?? "TBA", seat ?? "TBA", legLabel ?? ""].join("|")
+  const verifyUrl = buildVerifyUrl(pnr, legLabel)
   const barcodeSeed = `${pnr}:${origin}:${destination}:${legLabel ?? ""}`
 
   return (
@@ -55,9 +62,18 @@ export const BoardingPassCard = forwardRef<HTMLDivElement, BoardingPassCardProps
       style={{ perspective: 1200 }}
       className="relative w-full max-w-[820px] mx-auto"
     >
-      <div ref={ref} className="relative rounded-2xl overflow-hidden shadow-[0_30px_70px_rgba(0,0,0,0.45)] bg-[#F8F6F0]">
+      {/* data-pass-color exposes this pass's brand accent (theme.stripe)
+          on the DOM node itself, so pdfExport.ts can read it straight off
+          the captured element via el.dataset.passColor — no need for the
+          PDF exporter to import boardingPassThemes and duplicate this
+          mapping. */}
+      <div
+        ref={ref}
+        data-pass-color={theme.stripe}
+        className="relative rounded-2xl overflow-hidden shadow-[0_30px_70px_rgba(0,0,0,0.45)] bg-[#F8F6F0]"
+      >
         {/* ── Header band ─────────────────────────────────────────── */}
-        <div className="relative grid grid-cols-[68%_32%] h-[68px]" style={{ background: theme.headerBg }}>
+        <div className="relative grid grid-cols-[68%_32%] h-[84px]" style={{ background: theme.headerBg }}>
           <div className="absolute inset-y-0 left-0 w-14 overflow-hidden" aria-hidden>
             <div
               className="absolute -left-5 -top-3 -bottom-3 w-16"
@@ -65,16 +81,19 @@ export const BoardingPassCard = forwardRef<HTMLDivElement, BoardingPassCardProps
             />
           </div>
 
-          <div className="relative flex items-center gap-3 pl-9 pr-4 min-w-0">
+          <div className="relative flex items-center gap-3 pl-9 pr-4">
             {logoSrc && (
-              <span className="w-9 h-9 rounded-md bg-white flex items-center justify-center overflow-hidden shrink-0 shadow-sm">
-                <img src={logoSrc} alt={airline} className="w-6 h-6 object-contain" />
+              <span className="w-10 h-10 rounded-md bg-white flex items-center justify-center overflow-hidden shrink-0 shadow-sm">
+                <img src={logoSrc} alt={airline} className="w-7 h-7 object-contain" />
               </span>
             )}
-            <span className="font-display text-sm font-bold uppercase tracking-wide truncate" style={{ color: theme.titleColor }}>{airline}</span>
-            <span className="hidden sm:flex ml-auto shrink-0 items-center gap-2.5">
-              <img src="/logo.png" alt="Navigo" className="w-6 h-6 object-contain" />
-              <span className="font-display text-[11px] font-extrabold tracking-[0.3em]" style={{ color: theme.titleColor }}>
+            {/* removed truncate — a correctly-sized capture container
+                shouldn't need it, and an overflowing label beats a
+                silently clipped one if width is ever wrong again */}
+            <span className="font-display text-base font-bold uppercase tracking-wide whitespace-nowrap" style={{ color: theme.titleColor }}>{airline}</span>
+            <span className="hidden sm:flex ml-auto shrink-0 items-center gap-3">
+              <img src="/logo.png" alt="Navigo" className="w-11 h-11 object-contain" />
+              <span className="font-display text-[15px] font-extrabold tracking-[0.25em] whitespace-nowrap" style={{ color: theme.titleColor }}>
                 E-BOARDING PASS
               </span>
             </span>
@@ -82,8 +101,8 @@ export const BoardingPassCard = forwardRef<HTMLDivElement, BoardingPassCardProps
 
           <div className="relative flex items-center justify-center">
             {logoSrc && (
-              <span className="w-7 h-7 rounded-md bg-white flex items-center justify-center overflow-hidden shadow-sm">
-                <img src={logoSrc} alt="" className="w-5 h-5 object-contain" />
+              <span className="w-9 h-9 rounded-md bg-white flex items-center justify-center overflow-hidden shadow-sm">
+                <img src={logoSrc} alt="" className="w-6 h-6 object-contain" />
               </span>
             )}
           </div>
@@ -108,7 +127,7 @@ export const BoardingPassCard = forwardRef<HTMLDivElement, BoardingPassCardProps
           {/* main stub */}
           <div className="relative px-6 py-4 text-[#171310]">
             <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
+              <div>
                 {legLabel && (
                   <span
                     className="inline-block font-display text-[9px] font-bold tracking-[0.2em] uppercase px-2 py-0.5 rounded-full mb-1"
@@ -118,13 +137,13 @@ export const BoardingPassCard = forwardRef<HTMLDivElement, BoardingPassCardProps
                   </span>
                 )}
                 <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[#171310]/45">Passenger Name</p>
-                <p className="font-display text-lg font-bold uppercase tracking-tight truncate">{passengerName}</p>
+                <p className="font-display text-lg font-bold uppercase tracking-tight whitespace-nowrap">{passengerName}</p>
               </div>
 
               <div className="text-right shrink-0 flex items-start gap-6">
                 <div>
                   <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[#171310]/45">PNR</p>
-                  <p className="font-display text-sm font-extrabold uppercase tracking-[0.15em]" style={{ color: theme.stripe }}>{pnr}</p>
+                  <p className="font-display text-sm font-extrabold uppercase tracking-[0.15em] whitespace-nowrap" style={{ color: theme.stripe }}>{pnr}</p>
                 </div>
                 {(dateLabel || timeLabel) && (
                   <div>
@@ -175,13 +194,10 @@ export const BoardingPassCard = forwardRef<HTMLDivElement, BoardingPassCardProps
             </div>
           </div>
 
-          {/* stub — content follows the same top-to-bottom rhythm as the
-              main stub instead of being pinned to the bottom, so the two
-              columns stay visually balanced regardless of how much (or
-              little) content either one has. */}
+          {/* stub */}
           <div className="relative px-4 py-4 text-[#171310] flex flex-col">
             <p className="text-[8px] font-semibold uppercase tracking-[0.15em] text-[#171310]/45">Passenger Name</p>
-            <p className="font-display text-[12px] font-bold uppercase truncate">{passengerName}</p>
+            <p className="font-display text-[12px] font-bold uppercase whitespace-nowrap">{passengerName}</p>
 
             <div className="flex gap-4 mt-3">
               <Field label="Gate" value={gate || "TBA"} compact />
@@ -195,8 +211,15 @@ export const BoardingPassCard = forwardRef<HTMLDivElement, BoardingPassCardProps
             </div>
 
             <div className="flex items-end justify-between mt-5">
-              <img src="/logo.png" alt="Navigo" className="w-9 h-9 object-contain" />
-              <PseudoQr seed={qrSeed} size={17} pixelSize={4} className="rounded-md" />
+              <img src="/logo.png" alt="Navigo" className="w-14 h-14 object-contain" />
+              <QRCodeSVG
+                value={verifyUrl}
+                size={68}
+                bgColor="#F8F5EC"
+                fgColor="#0A1424"
+                level="M"
+                className="rounded-md"
+              />
             </div>
           </div>
         </div>
@@ -218,9 +241,9 @@ export const BoardingPassCard = forwardRef<HTMLDivElement, BoardingPassCardProps
 
 function Field({ label, value, compact = false }: { label: string; value: string; compact?: boolean }) {
   return (
-    <div className="min-w-0">
+    <div>
       <p className={`font-semibold uppercase tracking-[0.15em] text-[#171310]/45 ${compact ? "text-[8px]" : "text-[9px]"}`}>{label}</p>
-      <p className={`font-display font-bold uppercase truncate ${compact ? "text-[11px]" : "text-sm"}`}>{value}</p>
+      <p className={`font-display font-bold uppercase whitespace-nowrap ${compact ? "text-[11px]" : "text-sm"}`}>{value}</p>
     </div>
   )
 }

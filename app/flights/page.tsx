@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useRef, type MouseEvent as ReactMouseEvent } from "react"
+import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import Navbar from "@/components/navbar"
 import FlightCard from "@/components/FlightCard"
@@ -14,6 +14,33 @@ function formatDate(dateStr: string | null) {
     day: d.toLocaleDateString("en-IN", { weekday: "short" }),
   }
 }
+
+// ✅ NEW — today's date as "YYYY-MM-DD" in local time, for comparing
+// against the `depart`/`return` query params (which arrive in that same
+// format). Used to decide whether same-day departure-time filtering
+// applies — a search for a future date should never hide flights.
+function todayDateStr() {
+  const d = new Date()
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${yyyy}-${mm}-${dd}`
+}
+
+// ✅ NEW — "HH:MM" or "HH:MM:SS" -> minutes since midnight, for comparing
+// a flight's departure_time against the current clock time.
+function parseTimeStrToMinutes(timeStr?: string | null): number | null {
+  if (!timeStr) return null
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})/)
+  if (!match) return null
+  return Number(match[1]) * 60 + Number(match[2])
+}
+
+// Nobody can realistically search, book, and board a flight leaving in
+// the next few minutes — so for a same-day search, flights departing
+// sooner than this buffer from right now are excluded rather than shown
+// as a bookable (and already-unbookable) option.
+const MIN_DEPARTURE_BUFFER_MINUTES = 45
 
 // ✅ Option C safety net — normalises whatever field names the API returns
 // so FlightCard always gets `departure_time` and `arrival_time` as plain
@@ -90,6 +117,7 @@ const airlineLogos: Record<string, string> = {
   "Akasa Air": "/airlines/akasa.png",
   "Emirates": "/airlines/emirates.png",
   "Qatar Airways": "/airlines/qatar.png",
+  "Japan Airlines": "/airlines/japanairlines.png",
 }
 
 export default function FlightsPage() {
@@ -125,22 +153,16 @@ export default function FlightsPage() {
   const editRipple = useRipple()
   const continueRipple = useRipple()
 
-  // ✅ FIX: the tab used to switch to "Return" in the SAME click that set
-  // the departure selection, so the just-clicked card's selected-state
-  // highlight never had a frame to render before the whole list swapped
-  // out under it. Clicking felt like it did nothing. Now the highlight
-  // shows first, a toast confirms the pick, and only then do we advance —
-  // same underlying state change, just sequenced so the user can see it.
-  const [advanceToast, setAdvanceToast] = useState(false)
-  const advanceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    return () => {
-      if (advanceTimeoutRef.current) clearTimeout(advanceTimeoutRef.current)
-      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
-    }
-  }, [])
+  // ✅ FIX: no more auto-advancing to the Return tab. People scroll down to
+  // compare flights before picking, so a fixed delay either fires while
+  // they're still reading (annoying) or feels arbitrary either way.
+  // Instead: picking a departure flight shows a persistent banner with an
+  // explicit "Choose Return Flight" action, and the Return tab itself
+  // glows to draw the eye — the user decides when to move on, and we
+  // scroll back to the top for them when they do (since they may be deep
+  // in the departure list).
+  const [showProceedBanner, setShowProceedBanner] = useState(false)
+  const [returnTabVisited, setReturnTabVisited] = useState(false)
 
   const triggerReset = () => {
     setSelectedStops(null); setMaxPrice(20000); setSelectedAirlines([])
@@ -192,27 +214,49 @@ export default function FlightsPage() {
     setMaxPrice(20000)
   }
 
-  // ✅ New: selecting the departure flight now shows the pick, waits a
-  // beat, then advances — instead of instantly cutting to the Return tab.
+  // ✅ New: picking a departure flight sets the selection immediately (so
+  // the card highlights right away) and surfaces the proceed banner —
+  // nothing auto-navigates.
   const selectDepartureAndAdvance = (flight: any) => {
     setSelectedDepartFlight(flight)
-    if (mode !== "roundtrip") return
-
-    if (advanceTimeoutRef.current) clearTimeout(advanceTimeoutRef.current)
-    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
-
-    setAdvanceToast(true)
-    advanceTimeoutRef.current = setTimeout(() => {
-      switchTab("return")
-      toastTimeoutRef.current = setTimeout(() => setAdvanceToast(false), 900)
-    }, 550)
+    if (mode === "roundtrip") setShowProceedBanner(true)
   }
 
-  const applyFilters = (flights: any[]) => {
+  // ✅ New: shared by the banner's "Choose Return Flight" button and the
+  // Return tab itself — switches tabs, marks it visited (stops the glow),
+  // dismisses the banner, and scrolls back to the top since the person is
+  // likely scrolled deep into the departure list.
+  const goToReturn = () => {
+    switchTab("return")
+    setReturnTabVisited(true)
+    setShowProceedBanner(false)
+    window.scrollTo({ top: 0, behavior: "smooth" })
+  }
+
+  // The date governing whichever tab is currently active — used both for
+  // the same-day departure-time filter below and could be reused anywhere
+  // else that needs to know "which leg, which date" together.
+  const activeDateStr = activeTab === "departure" ? depart : returnDate
+
+  const applyFilters = (flights: any[], dateStr?: string | null) => {
+    // ✅ NEW: same-day departure-time filtering. If the traveler is
+    // searching for travel *today*, a flight that already left (or leaves
+    // within the next 45 minutes) isn't a real option — showing it as
+    // bookable is misleading. For any future date, every flight for that
+    // date is still valid regardless of the current clock time.
+    const filteringToday = !!dateStr && dateStr === todayDateStr()
+    const nowMinutes = filteringToday
+      ? new Date().getHours() * 60 + new Date().getMinutes()
+      : null
+
     return flights.filter((f) => {
       if (f.final_price > maxPrice) return false
       if (selectedStops !== null && f.stops !== selectedStops) return false
       if (selectedAirlines.length > 0 && !selectedAirlines.includes(f.airline)) return false
+      if (filteringToday && nowMinutes !== null) {
+        const depMinutes = parseTimeStrToMinutes(f.departure_time)
+        if (depMinutes !== null && depMinutes < nowMinutes + MIN_DEPARTURE_BUFFER_MINUTES) return false
+      }
       return true
     })
   }
@@ -251,7 +295,7 @@ export default function FlightsPage() {
 
   const getMinPriceByAirline = (airline: string) => {
     const sourceFlights = activeTab === "departure" ? departFlights : returnFlights
-    const flights = applyFilters(sourceFlights).filter((f) => f.airline === airline)
+    const flights = applyFilters(sourceFlights, activeDateStr).filter((f) => f.airline === airline)
     if (!flights.length) return null
     return Math.min(...flights.map((f) => f.final_price))
   }
@@ -265,7 +309,7 @@ export default function FlightsPage() {
   const airlinesList = ["Air India", "IndiGo", "Vistara", "Emirates"]
 
   const activeFlights = activeTab === "departure" ? departFlights : returnFlights
-  const currentFiltered = applyFilters(activeFlights)
+  const currentFiltered = applyFilters(activeFlights, activeDateStr)
 
   const cheapestFlight = currentFiltered.length
     ? [...currentFiltered].sort((a, b) => a.final_price - b.final_price)[0]
@@ -342,6 +386,18 @@ export default function FlightsPage() {
     : 0
   const displayedStickyTotal = useCountUp(stickyTotal)
 
+  // Glow the Return tab whenever there's a departure selection the person
+  // hasn't acted on yet — clears the moment they actually visit it.
+  const returnTabShouldGlow = mode === "roundtrip" && !!selectedDepartFlight && !returnTabVisited && activeTab === "departure"
+
+  // ✅ NEW: on the Return tab, the leg actually runs destination → origin —
+  // the top summary box was always showing origin/destination regardless
+  // of which tab was active, which reads wrong once you're looking at
+  // return flights. Swap which city displays under "From" vs "To" to
+  // match the leg you're actually looking at.
+  const displayFrom = activeTab === "return" ? destination : origin
+  const displayTo = activeTab === "return" ? origin : destination
+
   return (
     <div className={`relative min-h-screen text-white overflow-hidden page-enter ${mounted ? "is-mounted" : ""}`}>
 
@@ -364,14 +420,6 @@ export default function FlightsPage() {
         ))}
       </div>
 
-      {/* ✅ New: confirms the departure pick before the view advances */}
-      {advanceToast && (
-        <div className="select-toast fixed top-24 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-2.5 px-4 py-2.5 rounded-full bg-emerald-400/15 border border-emerald-400/30 text-emerald-200 text-sm shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md">
-          <span className="w-5 h-5 rounded-full bg-emerald-400/25 flex items-center justify-center text-emerald-300 text-[11px] shrink-0">✓</span>
-          Departure selected — loading return flights…
-        </div>
-      )}
-
       <div className="relative z-10">
         <Navbar />
 
@@ -384,12 +432,17 @@ export default function FlightsPage() {
 
                 <div className="text-slate-400 text-sm pr-6 border-r border-white/10 flex items-center gap-1.5">
                   <span className="text-amber-300">⇄</span> {mode}
+                  {activeTab === "return" && mode === "roundtrip" && (
+                    <span className="text-[10px] uppercase tracking-wide text-cyan-300 bg-cyan-400/10 border border-cyan-400/20 rounded-full px-2 py-0.5 ml-1">
+                      return leg
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-8 pr-8 border-r border-white/10">
                   <div>
                     <p className="text-xs text-slate-500">From</p>
-                    <p className="font-display text-4xl font-extrabold">{origin}</p>
+                    <p className="font-display text-4xl font-extrabold">{displayFrom}</p>
                   </div>
                   <button
                     onClick={() => setSwapSpin((v) => !v)}
@@ -398,20 +451,20 @@ export default function FlightsPage() {
                   >⇄</button>
                   <div>
                     <p className="text-xs text-slate-500">To</p>
-                    <p className="font-display text-4xl font-extrabold text-amber-300">{destination}</p>
+                    <p className="font-display text-4xl font-extrabold text-amber-300">{displayTo}</p>
                   </div>
                 </div>
 
                 <div className="flex items-center pr-8 border-r border-white/10">
                   <div className="pr-6">
-                    <p className="text-xs text-slate-500">Depart</p>
+                    <p className={`text-xs ${activeTab === "departure" ? "text-amber-300/80" : "text-slate-500"}`}>Depart</p>
                     <p className="font-display text-lg font-bold">{formattedDepart.date}</p>
                   </div>
                   {mode === "roundtrip" && returnDate && (
                     <>
                       <div className="h-10 w-px bg-white/10 mx-4" />
                       <div className="pl-6">
-                        <p className="text-xs text-slate-500">Return</p>
+                        <p className={`text-xs ${activeTab === "return" ? "text-amber-300/80" : "text-slate-500"}`}>Return</p>
                         <p className="font-display text-lg font-bold">{formatDate(returnDate).date}</p>
                       </div>
                     </>
@@ -620,13 +673,13 @@ export default function FlightsPage() {
                 </button>
                 <button
                   disabled={!selectedDepartFlight}
-                  onClick={() => switchTab("return")}
+                  onClick={goToReturn}
                   className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200
                   ${!selectedDepartFlight
                     ? "opacity-40 cursor-not-allowed text-slate-600"
                     : activeTab === "return"
                       ? "text-[#060B14] bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 shadow-[0_2px_12px_rgba(251,191,36,0.35)]"
-                      : "text-slate-400 hover:text-white hover:bg-white/[0.05]"}`}>
+                      : `text-slate-400 hover:text-white hover:bg-white/[0.05] ${returnTabShouldGlow ? "tab-glow" : ""}`}`}>
                   Return
                 </button>
               </div>
@@ -719,6 +772,35 @@ export default function FlightsPage() {
           </div>
 
         </div>
+
+        {/* ✅ New: persistent proceed-to-return banner — replaces the old
+            auto-advance. Sits above the sticky price bar so both can show
+            at once without overlapping. */}
+        {showProceedBanner && selectedDepartFlight && activeTab === "departure" && (
+          <div className="proceed-banner fixed bottom-24 left-1/2 -translate-x-1/2 z-[65] w-[min(92vw,560px)] bg-gradient-to-r from-[#0D1A2C] via-[#0B1729] to-[#0D1A2C] border border-emerald-400/30 rounded-2xl px-5 py-4 shadow-[0_20px_50px_rgba(0,0,0,0.45)] ticket-edge flex items-center gap-4">
+            <span className="w-9 h-9 rounded-full bg-emerald-400/15 border border-emerald-400/30 flex items-center justify-center text-emerald-300 text-base shrink-0">✓</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-white">Departure flight selected</p>
+              <p className="text-xs text-slate-400 truncate">
+                {selectedDepartFlight.airline} • {selectedDepartFlight.origin} → {selectedDepartFlight.destination}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setShowProceedBanner(false)}
+                className="px-3 py-2 rounded-full text-xs text-slate-400 hover:text-white hover:bg-white/[0.05] transition-colors"
+              >
+                Later
+              </button>
+              <button
+                onClick={goToReturn}
+                className="px-4 py-2 rounded-full text-xs font-semibold pill-cta whitespace-nowrap"
+              >
+                Choose Return →
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* STICKY BOTTOM BAR */}
         {selectedDepartFlight && (
@@ -950,18 +1032,25 @@ export default function FlightsPage() {
         @keyframes viewOutLeft { to { opacity: 0; transform: translateX(-3%); } }
         @keyframes viewInRight { from { opacity: 0; transform: translateX(3%); } to { opacity: 1; transform: translateX(0); } }
 
-        /* ── Departure-selected confirmation toast ── */
-        @keyframes toastSlideIn {
-          from { opacity: 0; transform: translate(-50%, -10px); }
+        /* ── Proceed-to-return banner — slides up, stays until dismissed ── */
+        @keyframes proceedBannerIn {
+          from { opacity: 0; transform: translate(-50%, 16px); }
           to   { opacity: 1; transform: translate(-50%, 0); }
         }
-        .select-toast { animation: toastSlideIn 220ms cubic-bezier(0.22,1,0.36,1) both; }
+        .proceed-banner { animation: proceedBannerIn 0.35s cubic-bezier(0.22,1,0.36,1) both; }
+
+        
+        @keyframes tabGlowPulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(251,191,36,0.4); }
+          50% { box-shadow: 0 0 0 7px rgba(251,191,36,0); }
+        }
+        .tab-glow { animation: tabGlowPulse 1.7s ease-in-out infinite; }
 
         @media (prefers-reduced-motion: reduce) {
           .fade-up, .custom-radio-dot, .custom-checkbox-tick,
           .page-enter, .topbar-enter, .filters-slide-in, .insights-fade-in,
           .reset-shake, .reset-spin, .ripple, .bottombar-enter, .total-pop,
-          .skeleton-card, .select-toast {
+          .skeleton-card, .proceed-banner, .tab-glow {
             animation: none !important; transition: none !important;
           }
           .page-enter { opacity: 1; transform: none; }

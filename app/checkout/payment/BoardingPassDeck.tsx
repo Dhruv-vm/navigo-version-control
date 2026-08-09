@@ -147,10 +147,20 @@ export function BoardingPassDeck({
         </div>
       )}
 
-      {/* hidden capture set — off-screen, always mounted, one per pass */}
-      <div aria-hidden style={{ position: "fixed", top: 0, left: -99999 }}>
+      {/* ✅ FIXED — hidden capture set now gets an explicit 820px width
+          (matching BoardingPassCard's own max-w-[820px]) instead of no
+          width at all. A `position: fixed` element with no width
+          shrinks to fit its content, which collapsed every truncate/
+          min-w-0 field inside the card down to almost nothing — that's
+          why names, city codes, and flight numbers were all ellipsizing
+          in the exported PDF regardless of how short they were. Each
+          card also gets its own fixed-width wrapper so html2canvas
+          captures the exact same layout that renders on screen. */}
+      <div aria-hidden style={{ position: "fixed", top: 0, left: -99999, width: 820 }}>
         {passes.map((p, i) => (
-          <BoardingPassCard key={i} {...p} index={0} ref={(el) => { cardRefs.current[i] = el }} />
+          <div key={i} style={{ width: 820 }}>
+            <BoardingPassCard {...p} index={0} ref={(el) => { cardRefs.current[i] = el }} />
+          </div>
         ))}
       </div>
 
