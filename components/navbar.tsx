@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { useRouter, usePathname, useSearchParams } from "next/navigation"
+import { useRouter, usePathname } from "next/navigation"
 
 const CURRENCIES = [
   { code: "INR", symbol: "₹", label: "Indian Rupee" },
@@ -13,7 +13,6 @@ const CURRENCIES = [
 export default function Navbar() {
   const router = useRouter()
   const pathname = usePathname()
-  const searchParams = useSearchParams()
 
   const [user, setUser] = useState<any>(null)
   const [currency, setCurrency] = useState(CURRENCIES[0])
@@ -22,12 +21,6 @@ export default function Navbar() {
 
   const currencyRef = useRef<HTMLDivElement>(null)
   const profileRef = useRef<HTMLDivElement>(null)
-
-  // ✅ detect if search exists
-  const hasSearch =
-    searchParams.get("origin") &&
-    searchParams.get("destination") &&
-    searchParams.get("depart")
 
   useEffect(() => {
     const token = localStorage.getItem("token")
@@ -116,22 +109,18 @@ export default function Navbar() {
             Home
           </button>
 
+          {/* ✅ Replaced the old "Flights" tab (which only enabled once a
+              search was already in progress) with a direct link to the
+              dashboard — always available, no gating condition needed. */}
           <button
-            onClick={() => {
-              if (hasSearch) {
-                router.push(`/flights?${searchParams.toString()}`)
-              }
-            }}
-            title={!hasSearch ? "Search flights first" : ""}
+            onClick={() => router.push("/dashboard")}
             className={`relative px-4 py-1.5 rounded-full font-medium transition-all duration-200 ${
-              pathname === "/flights"
+              pathname === "/dashboard"
                 ? "text-[#060B14] bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 shadow-[0_2px_12px_rgba(251,191,36,0.35)]"
-                : hasSearch
-                ? "text-slate-400 hover:text-white hover:bg-white/[0.05]"
-                : "text-slate-600 cursor-not-allowed"
+                : "text-slate-400 hover:text-white hover:bg-white/[0.05]"
             }`}
           >
-            Flights
+            Dashboard
           </button>
 
           <p className="px-4 py-1.5 rounded-full font-medium text-slate-400 hover:text-white hover:bg-white/[0.05] cursor-pointer transition-all duration-200">

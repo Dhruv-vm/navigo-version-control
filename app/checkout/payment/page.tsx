@@ -55,14 +55,6 @@ type CheckoutSelection = {
 const STORAGE_KEY = "navigo:checkoutSelection"
 const HOLD_MINUTES = 15
 
-// ✅ FIX: these are the same namespaced keys app/checkout/passengers/page.tsx
-// writes a completed booking's id and passenger draft into. They were never
-// cleared anywhere, so after a successful payment, the NEXT booking attempt
-// by the same user would silently pick the old (now-confirmed) bookingId
-// back up on the Passengers page and try to update it — which the bookings
-// API correctly rejects (status is no longer "draft"), surfacing as
-// "Booking not found" (POST /api/bookings 404) and making it look like the
-// user can't book again.
 const PAX_DRAFT_BASE_KEY = "navigo:passengerDraft"
 const BOOKING_ID_BASE_KEY = "navigo:bookingId"
 
@@ -226,6 +218,22 @@ export default function PaymentPage() {
     return () => clearInterval(interval)
   }, [selection?.holdExpiresAt, paid, router])
 
+  // ✅ New: once the booking is confirmed and the boarding pass is shown,
+  // there's no page navigation happening — `paid` just flips a render
+  // branch on this same route. That means the browser's Back button would
+  // otherwise return the traveler straight to the (now stale/invalid)
+  // card entry form. This traps the next back-press and sends them home
+  // instead, so there's no path back into a completed checkout.
+  useEffect(() => {
+    if (!paid) return
+    window.history.pushState(null, "", window.location.href)
+    const handlePopState = () => {
+      router.replace("/")
+    }
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [paid, router])
+
   if (loadState === "loading") {
     return <PageShell><CenteredMessage text="Preparing payment…" /></PageShell>
   }
@@ -328,9 +336,6 @@ export default function PaymentPage() {
           JSON.stringify({ pnr: data.pnr, bookingId: selection.bookingId, amountPaid, paidAt: Date.now() })
         )
         sessionStorage.removeItem(STORAGE_KEY)
-        // ✅ FIX: also clear the namespaced bookingId + passenger draft so
-        // the next booking this user starts can't accidentally reattach
-        // to this now-confirmed booking.
         clearStaleBookingSession()
       } catch (err) {
         console.error("Failed to persist completed booking:", err)
@@ -387,7 +392,7 @@ export default function PaymentPage() {
         <BoardingPassDeck
           passes={buildBoardingPasses(pnr)}
           formattedAmount={formatINR(tripTotal)}
-          onDone={() => router.push("/my-trips")}
+          onDone={() => router.replace("/dashboard")}
         />
       </PageShell>
     )
@@ -620,15 +625,6 @@ function HoldTimer({ msLeft, holdMinutes }: { msLeft: number; holdMinutes: numbe
     </div>
   )
 }
-
-// ---------------------------------------------------------------------------
-// ItinerarySummaryCard — replaces the old FlightSummaryCard / passengers box /
-// add-ons box / fare-breakdown box (four separate flat panels of identical
-// visual weight) with one continuous boarding-pass-style card, using the
-// same perforated-divider language as the seat page's SeatSummary so the
-// checkout flow reads as one product instead of an invoice bolted onto the
-// end of it.
-// ---------------------------------------------------------------------------
 
 function PerforatedDivider() {
   return (

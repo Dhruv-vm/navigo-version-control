@@ -216,3 +216,119 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
+
+// ---------------------------------------------------------------------------
+// GET /api/bookings
+//
+// ⚠️ Best-effort scaffold — the foreign-key constraint names used below
+// (`bookings_depart_flight_instance_id_fkey`, `bookings_return_flight_instance_id_fkey`)
+// and the `booking_seats` column names are inferred from Postgres/Supabase
+// convention, not confirmed against your actual schema. If this 500s with
+// a "could not find relationship" or "column does not exist" error, paste
+// that error (or the real constraint/column names) and I'll correct the
+// query precisely instead of guessing again.
+//
+// Returns each of the user's bookings with EVERY leg (departure, and
+// return if it's a round trip) and EVERY passenger, plus each passenger's
+// per-leg seat. This is what the dashboard needs to build leg/passenger
+// tabs instead of a single flattened row.
+//
+// Deliberately NOT included here (neither is stored on the booking):
+//   - gate       → fetched client-side from /api/flights/gate, same as
+//                  the payment page already does
+//   - flightNumber → derived client-side via deriveFlightNumber() from
+//                  bookingUtils.ts, same as the payment page already does
+// ---------------------------------------------------------------------------
+export async function GET(req: Request) {
+  try {
+    const user = getUserFromRequest(req)
+    if (!user) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+    }
+
+    const { data, error } = await supabase
+      .from("bookings")
+      .select(`
+        id,
+        pnr,
+        status,
+        created_at,
+        depart:flight_instances!bookings_depart_flight_instance_id_fkey (
+          id, travel_date, flights ( airline, origin, destination, departure_time )
+        ),
+        return:flight_instances!bookings_return_flight_instance_id_fkey (
+          id, travel_date, flights ( airline, origin, destination, departure_time )
+        ),
+        booking_passengers ( id, first_name, last_name, is_primary_contact ),
+        booking_seats ( flight_instance_id, passenger_id, seat_number )
+      `)
+      .eq("user_id", user.userId)
+      .order("created_at", { ascending: false })
+
+    if (error) {
+      console.error("BOOKINGS GET ERROR:", error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    const bookings = (data || []).map((b: any) => {
+      const isRoundTrip = !!b.return
+
+      const legs = [
+        b.depart && {
+          legLabel: isRoundTrip ? "Departure" : null,
+          flightInstanceId: b.depart.id,
+          airline: b.depart.flights?.airline || "—",
+          origin: b.depart.flights?.origin || "—",
+          destination: b.depart.flights?.destination || "—",
+          travelDate: b.depart.travel_date,
+          departureTime: b.depart.flights?.departure_time || undefined,
+        },
+        b.return && {
+          legLabel: "Return",
+          flightInstanceId: b.return.id,
+          airline: b.return.flights?.airline || "—",
+          origin: b.return.flights?.origin || "—",
+          destination: b.return.flights?.destination || "—",
+          travelDate: b.return.travel_date,
+          departureTime: b.return.flights?.departure_time || undefined,
+        },
+      ].filter(Boolean)
+
+      const passengers = (b.booking_passengers || [])
+        .slice()
+        .sort((a: any, bb: any) => (a.is_primary_contact === bb.is_primary_contact ? 0 : a.is_primary_contact ? -1 : 1))
+        .map((p: any) => ({
+          id: p.id,
+          name: `${p.first_name} ${p.last_name}`.trim(),
+          isPrimary: !!p.is_primary_contact,
+        }))
+
+      const seats = (b.booking_seats || []).map((s: any) => ({
+        flightInstanceId: s.flight_instance_id,
+        passengerId: s.passenger_id,
+        seatNumber: s.seat_number,
+      }))
+
+      // earliest leg date drives upcoming/past classification on the dashboard
+      const earliestTravelDate = legs.reduce((min: string | null, leg: any) => {
+        if (!leg?.travelDate) return min
+        return !min || leg.travelDate < min ? leg.travelDate : min
+      }, null as string | null)
+
+      return {
+        id: b.id,
+        pnr: b.pnr || undefined,
+        status: b.status,
+        travelDate: earliestTravelDate,
+        legs,
+        passengers,
+        seats,
+      }
+    })
+
+    return NextResponse.json(bookings)
+  } catch (err) {
+    console.error("BOOKINGS GET SERVER ERROR:", err)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}

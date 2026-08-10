@@ -6,6 +6,23 @@ import { DateRange } from "react-date-range"
 import "react-date-range/dist/styles.css"
 import "react-date-range/dist/theme/default.css"
 
+// ✅ NEW — the From/To fields used to be plain free-text inputs, so DXB
+// and NRT (the new Emirates/Japan Airlines routes) technically already
+// worked if you happened to type the right 3-letter code, but nothing on
+// the page told you they existed, and the city label under the code only
+// recognized DEL/BLR. This list is now the single source of truth for
+// both the picker dropdown and the city label.
+const AIRPORTS = [
+  { code: "DEL", city: "Delhi",     name: "Indira Gandhi Intl" },
+  { code: "BLR", city: "Bengaluru", name: "Kempegowda Intl" },
+  { code: "DXB", city: "Dubai",     name: "Dubai Intl" },
+  { code: "NRT", city: "Tokyo",     name: "Narita Intl" },
+]
+
+function airportFor(code: string) {
+  return AIRPORTS.find((a) => a.code === code)
+}
+
 function toDateOnly(date: Date): string {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, "0")
@@ -28,6 +45,11 @@ export default function SearchBox() {
   const [showCalendar, setShowCalendar] = useState(false)
   const [months, setMonths] = useState(2)
 
+  // ✅ NEW — which picker dropdown (if any) is open
+  const [openPicker, setOpenPicker] = useState<"from" | "to" | null>(null)
+  const fromFieldRef = useRef<HTMLDivElement>(null)
+  const toFieldRef = useRef<HTMLDivElement>(null)
+
   const [range, setRange] = useState<any>({
     startDate: new Date(),
     endDate: new Date(),
@@ -41,6 +63,19 @@ export default function SearchBox() {
     window.addEventListener("resize", update)
     return () => window.removeEventListener("resize", update)
   }, [])
+
+  // ✅ NEW — close whichever picker is open on an outside click
+  useEffect(() => {
+    if (!openPicker) return
+    const handleClick = (e: MouseEvent) => {
+      const ref = openPicker === "from" ? fromFieldRef : toFieldRef
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpenPicker(null)
+      }
+    }
+    document.addEventListener("mousedown", handleClick)
+    return () => document.removeEventListener("mousedown", handleClick)
+  }, [openPicker])
 
   useEffect(() => {
     const originParam = searchParams.get("origin")
@@ -73,6 +108,12 @@ export default function SearchBox() {
     setTo(from)
   }
 
+  const selectAirport = (field: "from" | "to", code: string) => {
+    if (field === "from") setFrom(code)
+    else setTo(code)
+    setOpenPicker(null)
+  }
+
   const search = () => {
     let url = `/flights?origin=${from}&destination=${to}&depart=${toDateOnly(range.startDate)}&pax=${passengers}&mode=${tripType}`
     if (tripType === "roundtrip") {
@@ -85,6 +126,9 @@ export default function SearchBox() {
     range.startDate && range.endDate
       ? Math.max(0, Math.ceil((range.endDate.getTime() - range.startDate.getTime()) / (1000 * 60 * 60 * 24)))
       : 0
+
+  const fromAirport = airportFor(from)
+  const toAirport = airportFor(to)
 
   return (
     <>
@@ -109,6 +153,19 @@ export default function SearchBox() {
           --muted:  #94A3B8;
           font-family: 'Manrope', 'Inter', system-ui, sans-serif;
           position: relative;
+          /* ✅ FIX: .sb-card uses backdrop-filter, which creates its own
+             stacking context — so .sb-picker's z-index only ever competed
+             against siblings INSIDE the card. Against later page sections
+             (Popular Routes / Cheapest Dates, rendered after this
+             component in the DOM), the whole card was just painting in
+             normal document order with no z-index of its own, so a later
+             section always drew on top regardless of the dropdown's
+             z-index. Giving the root a z-index promotes the entire widget
+             — dropdown included — above whatever comes after it on the
+             page. Raised further (not just to something small like 5)
+             since some marketing sections stack their own decorative
+             layers with non-trivial z-index too. */
+          z-index: 50;
         }
 
         /* ── Outer card ────────────────────────────────────────── */
@@ -231,8 +288,10 @@ export default function SearchBox() {
           border-radius: 16px;
           padding: 14px 18px;
           transition: border-color 0.2s, box-shadow 0.2s;
-          cursor: text;
+          cursor: pointer;
+          position: relative;
         }
+        .sb-field.is-open,
         .sb-field:focus-within {
           border-color: rgba(251,191,36,0.55);
           box-shadow: 0 0 0 3px rgba(251,191,36,0.12);
@@ -260,6 +319,42 @@ export default function SearchBox() {
           color: var(--muted);
           margin-top: 2px;
         }
+
+        /* ── Airport picker dropdown ───────────────────────────── */
+        .sb-picker {
+          position: absolute;
+          top: calc(100% + 8px);
+          left: 0;
+          min-width: 240px;
+          background: #0D1A2C;
+          border: 1px solid rgba(212,175,55,0.25);
+          border-radius: 14px;
+          box-shadow: 0 20px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(212,175,55,0.1);
+          padding: 6px;
+          z-index: 60;
+          cursor: default;
+        }
+        .sb-picker-option {
+          display: flex;
+          align-items: baseline;
+          gap: 10px;
+          padding: 10px 12px;
+          border-radius: 10px;
+          cursor: pointer;
+          transition: background 0.15s;
+        }
+        .sb-picker-option:hover { background: rgba(251,191,36,0.1); }
+        .sb-picker-option.is-selected { background: rgba(251,191,36,0.15); }
+        .sb-picker-code {
+          font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+          font-weight: 800;
+          font-size: 15px;
+          color: var(--gold-1);
+          min-width: 34px;
+        }
+        .sb-picker-text { display: flex; flex-direction: column; }
+        .sb-picker-city { font-size: 13px; font-weight: 600; color: var(--text); }
+        .sb-picker-name { font-size: 11px; color: var(--muted); }
 
         /* ── Route group ───────────────────────────────────────── */
         .sb-route {
@@ -489,28 +584,62 @@ export default function SearchBox() {
 
             {/* Route */}
             <div className="sb-route">
-              <div className="sb-field">
+              <div
+                className={`sb-field${openPicker === "from" ? " is-open" : ""}`}
+                ref={fromFieldRef}
+                onClick={() => setOpenPicker(openPicker === "from" ? null : "from")}
+              >
                 <div className="sb-label">From</div>
-                <input
-                  className="sb-iata"
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value.toUpperCase().slice(0, 3))}
-                  maxLength={3}
-                />
-                <div className="sb-city">{from === "DEL" ? "Indira Gandhi Intl" : from === "BLR" ? "Kempegowda Intl" : "—"}</div>
+                <div className="sb-iata">{from}</div>
+                <div className="sb-city">{fromAirport ? fromAirport.name : "—"}</div>
+
+                {openPicker === "from" && (
+                  <div className="sb-picker" onClick={(e) => e.stopPropagation()}>
+                    {AIRPORTS.map((a) => (
+                      <div
+                        key={a.code}
+                        className={`sb-picker-option${a.code === from ? " is-selected" : ""}`}
+                        onClick={() => selectAirport("from", a.code)}
+                      >
+                        <span className="sb-picker-code">{a.code}</span>
+                        <span className="sb-picker-text">
+                          <span className="sb-picker-city">{a.city}</span>
+                          <span className="sb-picker-name">{a.name}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <button className="sb-swap" onClick={swap} aria-label="Swap airports">⇄</button>
 
-              <div className="sb-field">
+              <div
+                className={`sb-field${openPicker === "to" ? " is-open" : ""}`}
+                ref={toFieldRef}
+                onClick={() => setOpenPicker(openPicker === "to" ? null : "to")}
+              >
                 <div className="sb-label">To</div>
-                <input
-                  className="sb-iata"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value.toUpperCase().slice(0, 3))}
-                  maxLength={3}
-                />
-                <div className="sb-city">{to === "BLR" ? "Kempegowda Intl" : to === "DEL" ? "Indira Gandhi Intl" : "—"}</div>
+                <div className="sb-iata">{to}</div>
+                <div className="sb-city">{toAirport ? toAirport.name : "—"}</div>
+
+                {openPicker === "to" && (
+                  <div className="sb-picker" onClick={(e) => e.stopPropagation()}>
+                    {AIRPORTS.map((a) => (
+                      <div
+                        key={a.code}
+                        className={`sb-picker-option${a.code === to ? " is-selected" : ""}`}
+                        onClick={() => selectAirport("to", a.code)}
+                      >
+                        <span className="sb-picker-code">{a.code}</span>
+                        <span className="sb-picker-text">
+                          <span className="sb-picker-city">{a.city}</span>
+                          <span className="sb-picker-name">{a.name}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
