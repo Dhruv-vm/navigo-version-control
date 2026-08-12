@@ -35,6 +35,11 @@ export type BoardingPassCardProps = {
   legLabel?: string
   addons?: PassAddon[]
   index?: number
+  // ✅ New — for past/completed trips. The QR is grayed out and covered
+  // with a lock icon (it should never scan-verify again once the flight
+  // has flown), and the whole pass gets a subtle desaturation + an
+  // "EXPIRED" ribbon so it reads as a keepsake, not a valid document.
+  expired?: boolean
 }
 
 function buildVerifyUrl(pnr: string, legLabel?: string) {
@@ -45,7 +50,7 @@ function buildVerifyUrl(pnr: string, legLabel?: string) {
 }
 
 export const BoardingPassCard = forwardRef<HTMLDivElement, BoardingPassCardProps>(function BoardingPassCard(
-  { pnr, passengerName, airline, logoSrc, origin, destination, dateLabel, timeLabel, gate, flightNumber, seat, legLabel, addons, index = 0 },
+  { pnr, passengerName, airline, logoSrc, origin, destination, dateLabel, timeLabel, gate, flightNumber, seat, legLabel, addons, index = 0, expired = false },
   ref
 ) {
   const theme = getAirlineTheme(airline)
@@ -62,16 +67,20 @@ export const BoardingPassCard = forwardRef<HTMLDivElement, BoardingPassCardProps
       style={{ perspective: 1200 }}
       className="relative w-full max-w-[820px] mx-auto"
     >
-      {/* data-pass-color exposes this pass's brand accent (theme.stripe)
-          on the DOM node itself, so pdfExport.ts can read it straight off
-          the captured element via el.dataset.passColor — no need for the
-          PDF exporter to import boardingPassThemes and duplicate this
-          mapping. */}
       <div
         ref={ref}
         data-pass-color={theme.stripe}
-        className="relative rounded-2xl overflow-hidden shadow-[0_30px_70px_rgba(0,0,0,0.45)] bg-[#F8F6F0]"
+        className={`relative rounded-2xl overflow-hidden shadow-[0_30px_70px_rgba(0,0,0,0.45)] bg-[#F8F6F0] transition-[filter,opacity] duration-300 ${
+          expired ? "grayscale-[0.55] opacity-[0.92]" : ""
+        }`}
       >
+        {/* ✅ EXPIRED ribbon — only for completed trips */}
+        {expired && (
+          <div className="absolute top-4 -right-11 z-20 rotate-45 w-40 py-1 bg-[#0A1424]/90 border-y border-white/10 text-center pointer-events-none">
+            <span className="font-display text-[10px] font-extrabold tracking-[0.2em] uppercase text-slate-300">Trip Completed</span>
+          </div>
+        )}
+
         {/* ── Header band ─────────────────────────────────────────── */}
         <div className="relative grid grid-cols-[68%_32%] h-[84px]" style={{ background: theme.headerBg }}>
           <div className="absolute inset-y-0 left-0 w-14 overflow-hidden" aria-hidden>
@@ -87,9 +96,6 @@ export const BoardingPassCard = forwardRef<HTMLDivElement, BoardingPassCardProps
                 <img src={logoSrc} alt={airline} className="w-7 h-7 object-contain" />
               </span>
             )}
-            {/* removed truncate — a correctly-sized capture container
-                shouldn't need it, and an overflowing label beats a
-                silently clipped one if width is ever wrong again */}
             <span className="font-display text-base font-bold uppercase tracking-wide whitespace-nowrap" style={{ color: theme.titleColor }}>{airline}</span>
             <span className="hidden sm:flex ml-auto shrink-0 items-center gap-3">
               <img src="/logo.png" alt="Navigo" className="w-11 h-11 object-contain" />
@@ -189,7 +195,7 @@ export const BoardingPassCard = forwardRef<HTMLDivElement, BoardingPassCardProps
                 <p className="font-display text-[9px] font-semibold tracking-[0.2em] uppercase text-[#171310]/50 mt-1">{pnr}</p>
               </div>
               <p className="text-[9px] italic text-[#171310]/50 text-right max-w-[220px]">
-                Gate closes 40 minutes before departure
+                {expired ? "This flight has already departed." : "Gate closes 40 minutes before departure"}
               </p>
             </div>
           </div>
@@ -212,14 +218,29 @@ export const BoardingPassCard = forwardRef<HTMLDivElement, BoardingPassCardProps
 
             <div className="flex items-end justify-between mt-5">
               <img src="/logo.png" alt="Navigo" className="w-14 h-14 object-contain" />
-              <QRCodeSVG
-                value={verifyUrl}
-                size={68}
-                bgColor="#F8F5EC"
-                fgColor="#0A1424"
-                level="M"
-                className="rounded-md"
-              />
+
+              {/* ✅ QR lock — grayed out + covered when expired, so it
+                  reads as inert rather than a still-valid boarding QR */}
+              <div className="relative">
+                <QRCodeSVG
+                  value={verifyUrl}
+                  size={68}
+                  bgColor="#F8F5EC"
+                  fgColor={expired ? "#8A8A85" : "#0A1424"}
+                  level="M"
+                  className={`rounded-md transition-opacity duration-300 ${expired ? "opacity-30" : ""}`}
+                />
+                {expired && (
+                  <div
+                    className="absolute inset-0 flex items-center justify-center"
+                    title="This boarding pass has expired — trip completed"
+                  >
+                    <span className="w-8 h-8 rounded-full bg-[#0A1424]/85 border border-white/15 flex items-center justify-center text-slate-200">
+                      <LockIcon />
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -245,5 +266,14 @@ function Field({ label, value, compact = false }: { label: string; value: string
       <p className={`font-semibold uppercase tracking-[0.15em] text-[#171310]/45 ${compact ? "text-[8px]" : "text-[9px]"}`}>{label}</p>
       <p className={`font-display font-bold uppercase whitespace-nowrap ${compact ? "text-[11px]" : "text-sm"}`}>{value}</p>
     </div>
+  )
+}
+
+function LockIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="11" width="16" height="9" rx="2" />
+      <path d="M8 11V7a4 4 0 018 0v4" />
+    </svg>
   )
 }
