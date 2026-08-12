@@ -1,18 +1,19 @@
 // Requires two packages:
 //   npm install jspdf html2canvas-pro
 //
-// ✅ Real A4 document: fixed 210×297mm pages with a Navigo header (logo,
-// title, generated-date, gold/gray rule) and an airline-style footer
-// (arrival/ID/gate-closing boilerplate + page numbering), both drawn with
-// jsPDF's own text/line primitives so they stay crisp at any zoom or
+// ✅ Real A4 document: fixed 210×297mm pages with a premium airline-style
+// header — full-width navy band, white logo chip, wordmark + subtitle and
+// a gold accent rule — plus an airline-style footer (arrival/ID/
+// gate-closing boilerplate + page numbering). All header/footer chrome is
+// drawn with jsPDF's own primitives so it stays crisp at any zoom or
 // print size instead of being part of the captured image.
 //
 // Passes are captured once up front, their real rendered heights
 // measured, then greedily packed onto pages — a page holds as many
-// passes as actually fit rather than a fixed count. When a page's
-// packed passes don't fill the available content area, they're
-// vertically centered instead of pinned to the top, so a 1-pass page
-// doesn't look like an accident with a huge gap underneath.
+// passes as actually fit rather than a fixed count. Passes are
+// top-aligned under the header band, exactly how airline boarding-pass
+// PDFs lay out, so a 1-pass page reads as a deliberate document rather
+// than floating in the middle of an empty page.
 //
 // Uses html2canvas-pro, not html2canvas — plain html2canvas can't parse
 // the oklab()/color-mix() color functions Tailwind v4 generates for any
@@ -22,9 +23,13 @@ const A4_WIDTH_MM = 210
 const A4_HEIGHT_MM = 297
 const MARGIN_X_MM = 15
 const CONTENT_WIDTH_MM = A4_WIDTH_MM - MARGIN_X_MM * 2
-const CONTENT_TOP_MM = 34 // below header + rule
+const HEADER_BAND_MM = 32 // navy band height
+const CONTENT_TOP_MM = HEADER_BAND_MM + 7 // below band + gold rule + breathing room
 const CONTENT_BOTTOM_MM = 267 // above footer rule
 const PASS_GAP_MM = 8
+
+const NAVY: [number, number, number] = [10, 20, 36] // #0A1424
+const GOLD: [number, number, number] = [212, 175, 55] // #D4AF37
 
 async function loadImageDataUrl(url: string): Promise<string | null> {
   try {
@@ -43,40 +48,57 @@ async function loadImageDataUrl(url: string): Promise<string | null> {
 }
 
 function drawHeader(pdf: any, logoDataUrl: string | null) {
-  let textX = MARGIN_X_MM
+  // Full-width navy band — the airline-document look, matching the
+  // amber/navy palette used throughout the checkout flow.
+  pdf.setFillColor(NAVY[0], NAVY[1], NAVY[2])
+  pdf.rect(0, 0, A4_WIDTH_MM, HEADER_BAND_MM, "F")
 
+  // Gold accent rule along the bottom edge of the band.
+  pdf.setFillColor(GOLD[0], GOLD[1], GOLD[2])
+  pdf.rect(0, HEADER_BAND_MM, A4_WIDTH_MM, 0.8, "F")
+
+  // White rounded chip so the gold Navigo mark pops against the navy.
+  const chip = 15
+  pdf.setFillColor(255, 255, 255)
+  pdf.roundedRect(MARGIN_X_MM, 8, chip, chip, 2, 2, "F")
   if (logoDataUrl) {
-    pdf.addImage(logoDataUrl, "PNG", MARGIN_X_MM, 9, 11, 11)
-    textX = MARGIN_X_MM + 15
+    pdf.addImage(logoDataUrl, "PNG", MARGIN_X_MM + 1.5, 9.5, chip - 3, chip - 3)
   }
 
+  const textX = MARGIN_X_MM + chip + 5
+
+  // Wordmark
   pdf.setFont("helvetica", "bold")
-  pdf.setFontSize(17)
-  pdf.setTextColor(10, 20, 36)
-  pdf.text("NAVIGO", textX, 16)
+  pdf.setFontSize(20)
+  pdf.setTextColor(255, 255, 255)
+  pdf.text("NAVIGO", textX, 17.5)
 
+  // Subtitle
   pdf.setFont("helvetica", "normal")
-  pdf.setFontSize(8.5)
-  pdf.setTextColor(100, 100, 100)
-  pdf.text("E-BOARDING PASS · OFFICIAL TRAVEL DOCUMENT", textX, 20.5)
-
   pdf.setFontSize(8)
-  pdf.setTextColor(130, 130, 130)
-  const generatedLabel = `Generated ${new Date().toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  })}`
-  pdf.text(generatedLabel, A4_WIDTH_MM - MARGIN_X_MM, 12, { align: "right" })
+  pdf.setTextColor(168, 178, 192)
+  pdf.text("E-BOARDING PASS  ·  OFFICIAL TRAVEL DOCUMENT", textX, 23.5)
 
-  // gold accent rule, thin gray rule underneath — matches the amber/navy
-  // accent used throughout the checkout flow rather than a generic line
-  pdf.setDrawColor(212, 175, 55)
-  pdf.setLineWidth(0.6)
-  pdf.line(MARGIN_X_MM, 25.5, A4_WIDTH_MM - MARGIN_X_MM, 25.5)
-  pdf.setDrawColor(225, 225, 225)
-  pdf.setLineWidth(0.2)
-  pdf.line(MARGIN_X_MM, 26.3, A4_WIDTH_MM - MARGIN_X_MM, 26.3)
+  // Right-aligned generated meta block
+  const rightX = A4_WIDTH_MM - MARGIN_X_MM
+  pdf.setFontSize(6.5)
+  pdf.setTextColor(150, 160, 175)
+  pdf.text("GENERATED", rightX, 12, { align: "right" })
+  pdf.setFontSize(9)
+  pdf.setTextColor(228, 232, 238)
+  pdf.text(
+    new Date().toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }),
+    rightX,
+    17,
+    { align: "right" }
+  )
+  pdf.setFontSize(7)
+  pdf.setTextColor(150, 160, 175)
+  pdf.text("navigo.app", rightX, 22.5, { align: "right" })
 }
 
 function drawFooter(pdf: any, pageNum: number, totalPages: number) {
@@ -164,11 +186,11 @@ export async function exportPassesToPdf(elements: HTMLElement[], filename: strin
 
     drawHeader(pdf, logoDataUrl)
 
-    const totalPassHeight =
-      pagePasses.reduce((sum, e) => sum + e.heightMm, 0) + PASS_GAP_MM * (pagePasses.length - 1)
-    const centeringOffset = Math.max(0, (availableHeight - totalPassHeight) / 2)
-
-    let y = CONTENT_TOP_MM + centeringOffset
+    // Passes stack from the top of the content area, under the header
+    // band — the layout real airline boarding-pass PDFs use. No vertical
+    // centering: a single pass sits right below the header, with the
+    // footer fine print anchored at the bottom of the page.
+    let y = CONTENT_TOP_MM
     for (const entry of pagePasses) {
       const imgData = entry.canvas.toDataURL("image/png")
       pdf.addImage(imgData, "PNG", MARGIN_X_MM, y, CONTENT_WIDTH_MM, entry.heightMm)

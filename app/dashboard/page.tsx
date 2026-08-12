@@ -685,7 +685,7 @@ function NextTripPasses({ booking, gateMap }: { booking: Booking; gateMap: Recor
         <div className="relative flex-1 h-8">
           <svg className="absolute inset-0 w-full h-full" viewBox="0 0 300 30" fill="none" preserveAspectRatio="none">
             <path
-              d="M2 15 C 80 -6, 150 36, 298 15"
+              d="M2 15 L 298 15"
               stroke="rgba(34,211,238,0.35)"
               strokeWidth="1.5"
               strokeDasharray="4 6"

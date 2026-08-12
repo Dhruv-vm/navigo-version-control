@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# freebuff tooling data (binary db — must never be scanned by Tailwind)
+/.freebuff/
+
 # production
 /build
 
