@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react"
+import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import Navbar from "@/components/navbar"
 import FlightCard from "@/components/FlightCard"
@@ -189,7 +189,7 @@ const airlineLogos: Record<string, string> = {
   "Akasa Air": "/airlines/akasa.png",
   "Emirates": "/airlines/emirates.png",
   "Qatar Airways": "/airlines/qatar.png",
-  "Japan Airlines": "/airlines/japanairlines.png",
+  "Japan Airlines": "/airlines/jal.png",
 }
 
 export default function FlightsPage() {
@@ -207,7 +207,7 @@ export default function FlightsPage() {
   const [departFlights, setDepartFlights] = useState<any[]>([])
   const [returnFlights, setReturnFlights] = useState<any[]>([])
   const [sortBy, setSortBy] = useState<SortMode>("best")
-  const [maxPrice, setMaxPrice] = useState(20000)
+  const [maxPrice, setMaxPrice] = useState(100000)
   const [selectedStops, setSelectedStops] = useState<number | null>(null)
   const [selectedAirlines, setSelectedAirlines] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<"departure" | "return">("departure")
@@ -216,6 +216,20 @@ export default function FlightsPage() {
   const [openSections, setOpenSections] = useState({ stops: true, price: true, airlines: true })
   const [particles, setParticles] = useState<any[]>([])
   const [userPoints, setUserPoints] = useState(650)
+
+  // Dynamically calculate maximum flight price limit from active flights
+  const currentLegFlights = activeTab === "departure" ? departFlights : returnFlights
+  const maxFlightPrice = useMemo(() => {
+    if (currentLegFlights.length === 0) return 100000
+    const highest = Math.max(...currentLegFlights.map((f) => f.final_price || f.base_price || 0))
+    return Math.max(20000, Math.ceil((highest * 1.1) / 5000) * 5000)
+  }, [currentLegFlights])
+
+  useEffect(() => {
+    if (maxFlightPrice > 0) {
+      setMaxPrice((prev) => (prev === 20000 || prev > maxFlightPrice ? maxFlightPrice : prev))
+    }
+  }, [maxFlightPrice])
 
   useEffect(() => {
     setUserPoints(getNavPointsBalance())
@@ -237,7 +251,9 @@ export default function FlightsPage() {
   const [returnTabVisited, setReturnTabVisited] = useState(false)
 
   const triggerReset = () => {
-    setSelectedStops(null); setMaxPrice(20000); setSelectedAirlines([])
+    setSelectedStops(null)
+    setMaxPrice(maxFlightPrice)
+    setSelectedAirlines([])
     setResetShake(true)
     setTimeout(() => setResetShake(false), 420)
   }
@@ -298,7 +314,7 @@ export default function FlightsPage() {
     setActiveTab(tab)
     setSelectedStops(null)
     setSelectedAirlines([])
-    setMaxPrice(20000)
+    setMaxPrice(maxFlightPrice)
   }
 
   const selectDepartureAndAdvance = (flight: any) => {
@@ -369,7 +385,7 @@ export default function FlightsPage() {
     { value: 2, title: "2+ Stops", subtitle: "Multiple layovers", price: 5000, icon: "🔀" },
   ]
 
-  const airlinesList = ["Air India", "IndiGo", "Vistara", "Emirates"]
+  const airlinesList = ["Air India", "IndiGo", "Vistara", "Emirates", "Japan Airlines"]
 
   const activeFlights = activeTab === "departure" ? departFlights : returnFlights
   const currentFiltered = applyFilters(activeFlights, activeDateStr)
@@ -656,15 +672,21 @@ export default function FlightsPage() {
                 <div className="grid transition-all duration-300 ease-out" style={{ gridTemplateRows: openSections.price ? "1fr" : "0fr" }}>
                   <div className="overflow-hidden">
                     <div className="pt-0.5">
-                      <input type="range" min={1000} max={20000} value={maxPrice}
+                      <input
+                        type="range"
+                        min={1000}
+                        max={maxFlightPrice}
+                        step={maxFlightPrice > 30000 ? 1000 : 250}
+                        value={Math.min(maxPrice, maxFlightPrice)}
                         onChange={(e) => setMaxPrice(Number(e.target.value))}
-                        className="w-full accent-amber-400" />
+                        className="w-full accent-amber-400"
+                      />
                       <div className="flex items-center justify-between text-xs text-slate-400 mt-2">
                         <span>₹1,000</span>
                         <span className="px-3 py-1 rounded-full bg-amber-400/[0.08] border border-amber-400/20 text-amber-200">
-                          ₹1,000 - ₹{maxPrice.toLocaleString("en-IN")}
+                          ₹1,000 - ₹{Math.min(maxPrice, maxFlightPrice).toLocaleString("en-IN")}
                         </span>
-                        <span>₹20,000</span>
+                        <span>₹{maxFlightPrice.toLocaleString("en-IN")}</span>
                       </div>
                     </div>
                   </div>
@@ -881,48 +903,58 @@ export default function FlightsPage() {
 
         {/* STICKY BOTTOM BAR */}
         {selectedDepartFlight && (
-          <div className="bottombar-enter fixed bottom-0 left-0 w-full bg-[#060B14]/90 backdrop-blur-xl border-t border-white/10 px-6 py-4 z-50">
+          <div className="bottombar-enter fixed bottom-0 left-0 w-full bg-[#060B14]/95 backdrop-blur-2xl border-t border-white/10 px-6 py-3.5 z-50 shadow-2xl">
             <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-blue-400 via-amber-400 to-amber-300" />
             <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-4">
               <div className="flex flex-col">
-                <span className="text-xs text-slate-400">Selected Flights</span>
-                <span className="text-sm font-semibold text-white">
-                  {selectedDepartFlight.airline} • {selectedDepartFlight.origin} → {selectedDepartFlight.destination}
+                <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+                  {mode === "roundtrip" ? (selectedReturnFlight ? "Both Flights Selected" : "Departure Selected (Choose Return)") : "Selected Flight"}
                 </span>
-                {selectedReturnFlight && (
-                  <span className="text-xs text-slate-300">
-                    Return: {selectedReturnFlight.airline} • {selectedReturnFlight.origin} → {selectedReturnFlight.destination}
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  <span className="text-sm font-bold text-white flex items-center gap-1.5">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">DEP</span>
+                    {selectedDepartFlight.airline} • {selectedDepartFlight.origin} → {selectedDepartFlight.destination}
                   </span>
-                )}
+                  {selectedReturnFlight && (
+                    <span className="text-sm font-bold text-amber-300 flex items-center gap-1.5 ml-2 pl-2 border-l border-white/20">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">RET</span>
+                      {selectedReturnFlight.airline} • {selectedReturnFlight.origin} → {selectedReturnFlight.destination}
+                    </span>
+                  )}
+                </div>
                 <span className="text-[11px] text-amber-300/90 font-medium mt-0.5 flex items-center gap-1">
                   <span>🪙</span> Earn +{Math.max(120, Math.round(selectedDepartFlight.final_price * 0.04))} pts · Redeem up to ₹{pointsToDiscount(userPoints)} off on payment
                 </span>
               </div>
-              <div className="text-right">
-                <p className="text-xs text-slate-400">
-                  {mode === "roundtrip" && !selectedReturnFlight ? "Total (departure only)" : "Total Price"}
-                </p>
-                <p className="font-display text-2xl font-extrabold text-amber-300 total-pop" key={selectedDepartFlight.id + (selectedReturnFlight?.id || "")}>
-                  ₹{displayedStickyTotal.toLocaleString("en-IN")}
-                </p>
+
+              <div className="flex items-center gap-6">
+                <div className="text-right">
+                  <p className="text-[11px] uppercase tracking-wider text-slate-400 font-medium">
+                    {mode === "roundtrip" && !selectedReturnFlight ? "Departure Fare" : "Total Fare"}
+                  </p>
+                  <p className="font-display text-2xl font-extrabold text-amber-300 total-pop" key={selectedDepartFlight.id + (selectedReturnFlight?.id || "")}>
+                    ₹{displayedStickyTotal.toLocaleString("en-IN")}
+                  </p>
+                </div>
+                <button
+                  disabled={mode === "roundtrip" && !selectedReturnFlight}
+                  onClick={handleContinue}
+                  onMouseDown={continueRipple.spawn}
+                  className={`group relative overflow-hidden px-7 py-3 rounded-full font-bold text-sm
+                  ${mode === "roundtrip" && !selectedReturnFlight
+                    ? "bg-white/[0.08] text-slate-500 cursor-not-allowed border border-white/10"
+                    : "pill-cta hover:scale-[1.03] active:scale-[0.98] shadow-lg shadow-amber-500/20"}
+                  transition duration-200`}
+                >
+                  {continueRipple.ripples.map((rp) => (
+                    <span key={rp.id} className="ripple" style={{ left: rp.x, top: rp.y }} />
+                  ))}
+                  <span className="relative inline-flex items-center gap-2">
+                    {mode === "roundtrip" && !selectedReturnFlight ? "Select Return Flight" : "Continue to Seats"}
+                    <span className="inline-block transition-transform duration-200 group-hover:translate-x-1">→</span>
+                  </span>
+                </button>
               </div>
-              <button
-                disabled={mode === "roundtrip" && !selectedReturnFlight}
-                onClick={handleContinue}
-                onMouseDown={continueRipple.spawn}
-                className={`group relative overflow-hidden px-6 py-3 rounded-full font-semibold
-                ${mode === "roundtrip" && !selectedReturnFlight
-                  ? "bg-white/[0.06] text-slate-500 cursor-not-allowed"
-                  : "pill-cta hover:scale-[1.03]"}
-                transition`}
-              >
-                {continueRipple.ripples.map((rp) => (
-                  <span key={rp.id} className="ripple" style={{ left: rp.x, top: rp.y }} />
-                ))}
-                <span className="relative inline-flex items-center gap-1.5">
-                  Continue <span className="inline-block transition-transform duration-200 group-hover:translate-x-1">→</span>
-                </span>
-              </button>
             </div>
           </div>
         )}

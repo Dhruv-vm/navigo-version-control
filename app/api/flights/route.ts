@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
+import { computeDynamicPrice } from '@/lib/pricing'
 
 // ✅ FIXED — departure_time / arrival_time are "HH:MM:SS" strings, NOT ISO datetimes.
 // Parsing them as `new Date("06:00:00")` gives Invalid Date → NaN duration.
@@ -74,42 +75,32 @@ export async function GET(req: Request) {
     return NextResponse.json([])
   }
 
-  // 🔥 STEP 1: Dynamic Pricing & Flattening
+  // 🔥 STEP 1: Standardized Dynamic Pricing Engine
   const enhancedData = data.map((flight) => {
     const instances = Array.isArray(flight.flight_instances) ? flight.flight_instances : []
     const instance = date
       ? instances.find((inst: any) => String(inst.travel_date || "").slice(0, 10) === date) || instances[0]
       : instances[0]
 
-    const basePrice = Number(flight.base_price) || 3500
-    const demandFactor = Math.random() * 0.2 + 1.05
+    const basePrice = Number(flight.base_price) || 5200
+    const availableSeats = Number(instance?.available_seats ?? 94)
+    const travelDateStr = String(instance?.travel_date || date || new Date().toISOString().slice(0, 10))
 
-    const travelDate = instance?.travel_date
-      ? new Date(instance.travel_date)
-      : date
-      ? new Date(date)
-      : new Date()
+    const pricing = computeDynamicPrice({
+      basePrice,
+      availableSeats,
+      travelDate: travelDateStr,
+    })
 
-    const [depH, depM] = (flight.departure_time || "00:00").split(":").map(Number)
-    const departure = new Date(travelDate)
-    departure.setHours(depH, depM || 0, 0, 0)
-
-    const hoursLeft = (departure.getTime() - Date.now()) / (1000 * 60 * 60)
-
-    let timeFactor = 1
-    if (hoursLeft > 0 && hoursLeft < 24) timeFactor = 1.3
-    else if (hoursLeft > 0 && hoursLeft < 72) timeFactor = 1.15
-
-    const final_price = Math.round(basePrice * demandFactor * timeFactor)
-
+    const final_price = pricing.finalPrice
     const durationMins = getDurationMinutes(flight)
     const duration = formatDuration(durationMins)
 
     return {
       ...flight,
       flight_instance_id: instance?.id || `inst-${flight.id}`,
-      travel_date: instance?.travel_date || date || new Date().toISOString().slice(0, 10),
-      available_seats: instance?.available_seats ?? 94,
+      travel_date: travelDateStr,
+      available_seats: availableSeats,
       seats_economy: instance?.seats_economy ?? 120,
       seats_premium_economy: instance?.seats_premium_economy ?? 24,
       seats_business: instance?.seats_business ?? 12,

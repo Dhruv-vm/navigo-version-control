@@ -164,7 +164,7 @@ export function BoardingPassDeck({
       <div aria-hidden style={{ position: "fixed", top: 0, left: -99999, width: 820 }}>
         {passes.map((p, i) => (
           <div key={i} style={{ width: 820 }}>
-            <BoardingPassCard {...p} index={0} ref={(el) => { cardRefs.current[i] = el }} />
+            <BoardingPassCard key={`deck-pass-${i}`} {...p} index={0} ref={(el) => { cardRefs.current[i] = el }} />
           </div>
         ))}
       </div>

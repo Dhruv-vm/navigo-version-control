@@ -139,7 +139,7 @@ export default function BoardingPassModal({
         (s) => s.flightInstanceId === leg.flightInstanceId && s.passengerId === pax.id
       )?.seatNumber
       return {
-        key: `${leg.flightInstanceId}-${pax.id}`,
+        passKey: `${leg.flightInstanceId}-${pax.id}`,
         pnr,
         passengerName: pax.name,
         airline: leg.airline,
@@ -161,7 +161,7 @@ export default function BoardingPassModal({
     setDownloading(true)
     try {
       const elements = allPassEntries
-        .map((entry) => hiddenCardRefs.current[entry.key])
+        .map((entry) => hiddenCardRefs.current[entry.passKey])
         .filter((el): el is HTMLDivElement => !!el)
 
       if (elements.length > 0) {
@@ -340,12 +340,13 @@ export default function BoardingPassModal({
 
           {/* Hidden multi-pass render container for PDF snapshotting */}
           <div aria-hidden style={{ position: "fixed", top: 0, left: -99999, width: 820 }}>
-            {allPassEntries.map((pass) => (
-              <div key={pass.key} style={{ width: 820 }}>
+            {allPassEntries.map(({ passKey, ...passProps }) => (
+              <div key={passKey} style={{ width: 820 }}>
                 <BoardingPassCard
-                  {...pass}
+                  key={passKey}
+                  {...passProps}
                   ref={(el) => {
-                    hiddenCardRefs.current[pass.key] = el
+                    hiddenCardRefs.current[passKey] = el
                   }}
                 />
               </div>

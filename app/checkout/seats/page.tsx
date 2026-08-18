@@ -776,7 +776,7 @@ export default function SeatSelectionPage() {
             active={activeCabin}
             onChange={setActiveCabin}
           />
-          <AircraftCard flight={selection.departFlight} activeCabin={activeCabin} />
+          <AircraftCard flight={activeLegFlight} activeCabin={activeCabin} />
         </div>
 
         <div className="col-span-12 lg:col-span-6 space-y-4">

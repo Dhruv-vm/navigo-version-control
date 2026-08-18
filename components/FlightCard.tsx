@@ -24,6 +24,7 @@ const airlineLogos: Record<string, string> = {
   "Akasa Air": "/airlines/akasa.png",
   "Emirates": "/airlines/emirates.png",
   "Qatar Airways": "/airlines/qatar.png",
+  "Japan Airlines": "/airlines/jal.png",
 };
 
 // Premium jewel-tone tag treatment — each tag reads as a small emblem
