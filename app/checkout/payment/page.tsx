@@ -17,6 +17,14 @@ import {
   type CardFieldErrors,
 } from "./cardUtils"
 import { formatINR, deriveFlightNumber } from "./bookingUtils"
+import {
+  getNavPointsBalance,
+  deductNavPoints,
+  creditNavPoints,
+  calculateEarnedPoints,
+  pointsToDiscount,
+  POINTS_PER_RUPEE,
+} from "@/lib/navpoints"
 
 type StoredFlight = {
   id: string
@@ -234,6 +242,16 @@ export default function PaymentPage() {
     return () => window.removeEventListener("popstate", handlePopState)
   }, [paid, router])
 
+  const [availablePoints, setAvailablePoints] = useState(650)
+  const [redeemEnabled, setRedeemEnabled] = useState(false)
+  const [redeemPoints, setRedeemPoints] = useState(0)
+
+  useEffect(() => {
+    const bal = getNavPointsBalance()
+    setAvailablePoints(bal)
+    setRedeemPoints(Math.min(bal, 400))
+  }, [])
+
   if (loadState === "loading") {
     return <PageShell><CenteredMessage text="Preparing payment…" /></PageShell>
   }
@@ -257,7 +275,15 @@ export default function PaymentPage() {
   const taxesAndFees = Math.round(baseFare * 0.19)
   const seatSelectionPrice = selection.seatSelectionPrice || 0
   const addonsTotal = selection.addonsTotal ?? (selection.addons || []).reduce((sum, a) => sum + a.price, 0)
-  const tripTotal = baseFare + taxesAndFees + seatSelectionPrice + addonsTotal
+
+  const maxPossiblePoints = availablePoints
+  const grossAmount = baseFare + taxesAndFees + seatSelectionPrice + addonsTotal
+  const maxRedeemableForFare = Math.max(0, (grossAmount - 50) * POINTS_PER_RUPEE)
+  const maxPointsToUse = Math.min(maxPossiblePoints, maxRedeemableForFare)
+  const actualPointsUsed = redeemEnabled ? Math.min(redeemPoints, maxPointsToUse) : 0
+  const navpointsDiscount = redeemEnabled ? pointsToDiscount(actualPointsUsed) : 0
+  const tripTotal = Math.max(1, grossAmount - navpointsDiscount)
+  const earnedPoints = calculateEarnedPoints(tripTotal)
 
   const primaryPassengerName = selection.savedPassengers?.[0]
     ? passengerDisplayName(selection.savedPassengers[0])
@@ -330,10 +356,25 @@ export default function PaymentPage() {
       setPnr(data.pnr)
       setPaid(true)
       setPendingConfirm(null)
+
+      // Deduct redeemed points & credit earned points for this journey
+      if (redeemEnabled && actualPointsUsed > 0) {
+        deductNavPoints(actualPointsUsed)
+      }
+      creditNavPoints(earnedPoints)
+
       try {
         sessionStorage.setItem(
           "navigo:lastBooking",
-          JSON.stringify({ pnr: data.pnr, bookingId: selection.bookingId, amountPaid, paidAt: Date.now() })
+          JSON.stringify({
+            pnr: data.pnr,
+            bookingId: selection.bookingId,
+            amountPaid,
+            redeemedPoints: actualPointsUsed,
+            savedDiscount: navpointsDiscount,
+            earnedPoints,
+            paidAt: Date.now(),
+          })
         )
         sessionStorage.removeItem(STORAGE_KEY)
         clearStaleBookingSession()
@@ -417,6 +458,15 @@ export default function PaymentPage() {
             taxesAndFees={taxesAndFees}
             seatSelectionPrice={seatSelectionPrice}
             addonsTotal={addonsTotal}
+            availablePoints={availablePoints}
+            redeemEnabled={redeemEnabled}
+            onToggleRedeem={setRedeemEnabled}
+            redeemPoints={redeemPoints}
+            onChangeRedeemPoints={setRedeemPoints}
+            maxPointsToUse={maxPointsToUse}
+            navpointsDiscount={navpointsDiscount}
+            actualPointsUsed={actualPointsUsed}
+            earnedPoints={earnedPoints}
             tripTotal={tripTotal}
           />
 
@@ -705,9 +755,126 @@ function AddonsRow({ addons }: { addons: StoredAddon[] }) {
   )
 }
 
+function NavPointsRedeemSection({
+  availablePoints,
+  redeemEnabled,
+  onToggleRedeem,
+  redeemPoints,
+  onChangeRedeemPoints,
+  maxPointsToUse,
+  discountAmount,
+  earnedPoints,
+}: {
+  availablePoints: number
+  redeemEnabled: boolean
+  onToggleRedeem: (v: boolean) => void
+  redeemPoints: number
+  onChangeRedeemPoints: (pts: number) => void
+  maxPointsToUse: number
+  discountAmount: number
+  earnedPoints: number
+}) {
+  const quickPoints = [100, 200, 400, maxPointsToUse].filter(
+    (p, i, arr) => p > 0 && p <= maxPointsToUse && arr.indexOf(p) === i
+  )
+
+  return (
+    <div className="px-5 py-4 bg-amber-400/[0.04] border-y border-[#D4AF37]/20">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-full bg-amber-400/15 border border-amber-400/30 flex items-center justify-center text-base shrink-0">
+            🪙
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold text-white">Redeem NavPoints</span>
+              <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                {availablePoints} pts (₹{pointsToDiscount(availablePoints)})
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-0.5">2 NavPoints = ₹1 discount</p>
+          </div>
+        </div>
+
+        <label className="relative inline-flex items-center cursor-pointer ml-3 shrink-0">
+          <input
+            type="checkbox"
+            checked={redeemEnabled}
+            onChange={(e) => onToggleRedeem(e.target.checked)}
+            disabled={availablePoints < 10}
+            className="sr-only peer"
+          />
+          <div className="w-10 h-5 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-400" />
+        </label>
+      </div>
+
+      {redeemEnabled && (
+        <div className="mt-3 pt-3 border-t border-white/[0.06] space-y-2.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-slate-400">Points to apply:</span>
+            <span className="font-display font-bold text-amber-300">
+              {redeemPoints} pts <span className="text-emerald-400">(-₹{discountAmount})</span>
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {quickPoints.map((pts) => (
+              <button
+                key={pts}
+                type="button"
+                onClick={() => onChangeRedeemPoints(pts)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                  redeemPoints === pts
+                    ? "bg-amber-400/20 border-amber-400 text-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.2)]"
+                    : "bg-white/[0.04] border-white/10 text-slate-400 hover:text-white hover:border-white/20"
+                }`}
+              >
+                {pts === maxPointsToUse ? `Max (${pts} pts)` : `${pts} pts (₹${pointsToDiscount(pts)})`}
+              </button>
+            ))}
+          </div>
+
+          {maxPointsToUse > 50 && (
+            <input
+              type="range"
+              min={20}
+              max={maxPointsToUse}
+              step={10}
+              value={redeemPoints}
+              onChange={(e) => onChangeRedeemPoints(Number(e.target.value))}
+              className="w-full accent-amber-400 cursor-pointer h-1.5 bg-white/10 rounded-lg"
+            />
+          )}
+
+          <div className="p-2 rounded-lg bg-emerald-400/[0.08] border border-emerald-400/20 flex items-center justify-between text-xs">
+            <span className="text-emerald-300 font-medium">✨ Instant Savings</span>
+            <span className="font-display font-bold text-emerald-300">₹{discountAmount} OFF</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function FareBreakdownSection({
-  baseFare, taxesAndFees, seatSelectionPrice, addonsTotal, tripTotal,
-}: { baseFare: number; taxesAndFees: number; seatSelectionPrice: number; addonsTotal: number; tripTotal: number }) {
+  baseFare,
+  taxesAndFees,
+  seatSelectionPrice,
+  addonsTotal,
+  navpointsDiscount,
+  actualPointsUsed,
+  tripTotal,
+  earnedPoints,
+}: {
+  baseFare: number
+  taxesAndFees: number
+  seatSelectionPrice: number
+  addonsTotal: number
+  navpointsDiscount: number
+  actualPointsUsed: number
+  tripTotal: number
+  earnedPoints: number
+}) {
   return (
     <div className="px-5 pt-4 pb-5">
       <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-2.5">Fare Breakdown</p>
@@ -720,9 +887,20 @@ function FareBreakdownSection({
         {addonsTotal > 0 && (
           <div className="flex justify-between"><span className="text-slate-500">Add-ons Total</span><span className="text-emerald-400/80 tabular-nums">{formatINR(addonsTotal)}</span></div>
         )}
+        {navpointsDiscount > 0 && (
+          <div className="flex justify-between text-emerald-400 font-semibold">
+            <span className="flex items-center gap-1">🪙 NavPoints Discount ({actualPointsUsed} pts)</span>
+            <span className="tabular-nums">-{formatINR(navpointsDiscount)}</span>
+          </div>
+        )}
       </div>
       <div className="border border-blue-400/25 bg-blue-500/[0.07] rounded-xl px-4 py-3.5 flex items-end justify-between">
-        <span className="text-sm text-slate-300">Amount to Pay</span>
+        <div>
+          <span className="text-sm text-slate-300 block">Amount to Pay</span>
+          <span className="text-[10px] text-amber-300/90 font-medium mt-0.5 flex items-center gap-1">
+            ✨ Earn +{earnedPoints} pts on booking
+          </span>
+        </div>
         <span className="font-display text-[28px] leading-none font-extrabold tabular-nums text-[#E8C766]">{formatINR(tripTotal)}</span>
       </div>
     </div>
@@ -730,15 +908,45 @@ function FareBreakdownSection({
 }
 
 function ItinerarySummaryCard({
-  departFlight, returnFlight, isRoundTrip, passengers, addons,
-  baseFare, taxesAndFees, seatSelectionPrice, addonsTotal, tripTotal,
+  departFlight,
+  returnFlight,
+  isRoundTrip,
+  passengers,
+  addons,
+  baseFare,
+  taxesAndFees,
+  seatSelectionPrice,
+  addonsTotal,
+  availablePoints,
+  redeemEnabled,
+  onToggleRedeem,
+  redeemPoints,
+  onChangeRedeemPoints,
+  maxPointsToUse,
+  navpointsDiscount,
+  actualPointsUsed,
+  earnedPoints,
+  tripTotal,
 }: {
   departFlight: StoredFlight
   returnFlight: StoredFlight | null
   isRoundTrip: boolean
   passengers: CheckoutSelection["savedPassengers"]
   addons: StoredAddon[] | undefined
-  baseFare: number; taxesAndFees: number; seatSelectionPrice: number; addonsTotal: number; tripTotal: number
+  baseFare: number
+  taxesAndFees: number
+  seatSelectionPrice: number
+  addonsTotal: number
+  availablePoints: number
+  redeemEnabled: boolean
+  onToggleRedeem: (v: boolean) => void
+  redeemPoints: number
+  onChangeRedeemPoints: (pts: number) => void
+  maxPointsToUse: number
+  navpointsDiscount: number
+  actualPointsUsed: number
+  earnedPoints: number
+  tripTotal: number
 }) {
   return (
     <div className="relative bg-gradient-to-b from-[#0D1A2C] to-[#0A1424] border border-[#D4AF37]/15 rounded-2xl overflow-hidden ticket-edge">
@@ -763,12 +971,25 @@ function ItinerarySummaryCard({
         </>
       )}
       <PerforatedDivider />
+      <NavPointsRedeemSection
+        availablePoints={availablePoints}
+        redeemEnabled={redeemEnabled}
+        onToggleRedeem={onToggleRedeem}
+        redeemPoints={redeemPoints}
+        onChangeRedeemPoints={onChangeRedeemPoints}
+        maxPointsToUse={maxPointsToUse}
+        discountAmount={navpointsDiscount}
+        earnedPoints={earnedPoints}
+      />
       <FareBreakdownSection
         baseFare={baseFare}
         taxesAndFees={taxesAndFees}
         seatSelectionPrice={seatSelectionPrice}
         addonsTotal={addonsTotal}
+        navpointsDiscount={navpointsDiscount}
+        actualPointsUsed={actualPointsUsed}
         tripTotal={tripTotal}
+        earnedPoints={earnedPoints}
       />
     </div>
   )

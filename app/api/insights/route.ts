@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server"
 
 export async function GET() {
-  const score = (Math.random() * 5).toFixed(1)
+  const numScore = Number((Math.random() * 5).toFixed(1))
+  const score = String(numScore)
 
   let level = "Medium"
 
-  if (score < 2.5) level = "Low"
-  else if (score > 3.5) level = "High"
+  if (numScore < 2.5) level = "Low"
+  else if (numScore > 3.5) level = "High"
 
   return NextResponse.json({
     score,

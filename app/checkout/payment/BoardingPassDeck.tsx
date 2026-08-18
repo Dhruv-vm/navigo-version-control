@@ -84,9 +84,14 @@ export function BoardingPassDeck({
       <h1 className="font-display text-2xl font-extrabold text-white">Booking Confirmed</h1>
       <p className="text-sm text-slate-500 mt-1">{formattedAmount} paid successfully</p>
 
-      <div className="inline-flex items-center gap-2.5 mt-4 px-4 py-2 rounded-full bg-[#D4AF37]/10 border border-[#D4AF37]/25">
-        <span className="text-[10px] uppercase tracking-widest text-slate-500">Booking Reference (PNR)</span>
-        <span className="font-display text-base font-extrabold tracking-[0.2em] text-[#E8C766]">{active?.pnr}</span>
+      <div className="flex items-center justify-center gap-3 mt-4 flex-wrap">
+        <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-[#D4AF37]/10 border border-[#D4AF37]/25">
+          <span className="text-[10px] uppercase tracking-widest text-slate-500">Booking Reference (PNR)</span>
+          <span className="font-display text-base font-extrabold tracking-[0.2em] text-[#E8C766]">{active?.pnr}</span>
+        </div>
+        <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-emerald-400/10 border border-emerald-400/25 text-emerald-300 text-xs font-semibold">
+          <span>🪙</span> NavPoints Credited to Your Account
+        </div>
       </div>
 
       {passes.length > 1 && (

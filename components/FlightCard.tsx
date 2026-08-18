@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
-import FlightDetailsModal from "@/components/FlightDetailsModal.tsx"
+import FlightDetailsModal from "@/components/FlightDetailsModal"
 
 type Flight = {
   airline: string;
@@ -289,13 +289,17 @@ export default function FlightCard({
             ₹{safePrice.toLocaleString()} × {pax} passenger{pax > 1 ? "s" : ""}
           </p>
 
+          <p className="text-[11px] text-[#E8C766] font-semibold whitespace-nowrap mt-1 flex items-center gap-1">
+            <span>🪙</span> Earn +{Math.max(120, Math.round(safePrice * 0.04))} pts
+          </p>
+
           <button
             onClick={(e) => {
               e.stopPropagation();
               onSelect?.();
             }}
             onMouseDown={spawnRipple}
-            className={`select-btn relative overflow-hidden mt-4 px-6 py-2.5 rounded-full font-semibold text-sm tracking-wide whitespace-nowrap transition-all duration-200
+            className={`select-btn relative overflow-hidden mt-3 px-6 py-2.5 rounded-full font-semibold text-sm tracking-wide whitespace-nowrap transition-all duration-200
             ${isSelected
               ? "bg-white/[0.06] text-amber-300 border border-amber-300/40"
               : "pill-cta hover:scale-[1.03]"
@@ -312,11 +316,14 @@ export default function FlightCard({
       </div>
 
       {/* ICON ROW */}
-      <div className="flex items-center gap-3 mt-5 pt-4 border-t border-white/[0.06] text-gray-500 text-[11px] tracking-wide">
+      <div className="flex items-center gap-2.5 mt-5 pt-4 border-t border-white/[0.06] text-gray-400 text-[11px] tracking-wide flex-wrap">
         <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.03]">📶 Wifi</span>
-        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.03]">🧳 Baggage</span>
-        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.03]">💺 Seat</span>
-        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.03]">🍽️ Meal</span>
+        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.03]">🧳 15kg Check-in</span>
+        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.03]">💺 Seat Select</span>
+        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.03]">🍽️ Meal Options</span>
+        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-400/10 text-amber-300 border border-amber-400/20 font-semibold ml-auto">
+          🪙 Rewards Eligible
+        </span>
       </div>
 
       <style jsx>{`

@@ -123,12 +123,19 @@ export default function Navbar() {
             Dashboard
           </button>
 
-          <p className="px-4 py-1.5 rounded-full font-medium text-slate-400 hover:text-white hover:bg-white/[0.05] cursor-pointer transition-all duration-200">
-            Deals
-          </p>
+          <button
+            onClick={() => router.push("/my-trips")}
+            className={`relative px-4 py-1.5 rounded-full font-medium transition-all duration-200 ${
+              pathname === "/my-trips" || pathname === "/trips"
+                ? "text-[#060B14] bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 shadow-[0_2px_12px_rgba(251,191,36,0.35)]"
+                : "text-slate-400 hover:text-white hover:bg-white/[0.05]"
+            }`}
+          >
+            My Trips
+          </button>
 
           <p className="px-4 py-1.5 rounded-full font-medium text-slate-400 hover:text-white hover:bg-white/[0.05] cursor-pointer transition-all duration-200">
-            My Trips
+            Deals
           </p>
 
           <div className="flex items-center gap-1.5 pl-4 pr-3 py-1.5 rounded-full font-medium text-slate-400 hover:text-white hover:bg-white/[0.05] cursor-pointer transition-all duration-200">
@@ -258,7 +265,7 @@ export default function Navbar() {
                       {user.email && <p className="text-[11px] text-slate-500 truncate mt-0.5">{user.email}</p>}
                     </div>
                     <button
-                      onClick={() => { setProfileOpen(false); router.push("/trips") }}
+                      onClick={() => { setProfileOpen(false); router.push("/my-trips") }}
                       className="w-full text-left px-4 py-2.5 text-sm text-slate-300 hover:text-white hover:bg-white/[0.04] transition-colors flex items-center gap-2.5"
                     >
                       <span aria-hidden>🧳</span> My Trips

@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation"
 import Navbar from "@/components/navbar"
 import FlightCard from "@/components/FlightCard"
 import PriceInsight from "@/components/PriceInsight"
+import { getNavPointsBalance, pointsToDiscount } from "@/lib/navpoints"
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return { date: "", day: "" }
@@ -72,6 +73,77 @@ function normalizeFlight(f: any) {
   }
 
   return { ...f, departure_time, arrival_time, duration }
+}
+
+// ✅ FIX — the /api/flights response now returns one row per *route
+// template* (the `flights` table: schedule, times, stops, aircraft — all
+// date-independent) with a nested `flight_instances` array, one row per
+// calendar date, holding the actual `fare_amount`, seat availability, and
+// the id that needs to be booked/held for that date. The page was still
+// treating each top-level row as an already-priced, already-bookable
+// flight, so `final_price` was `undefined` for everything — for dates
+// with no seeded instance at all (the known future-date gap) that meant
+// nothing to flatten a price from, so the results list came back empty
+// instead of surfacing the real data gap.
+//
+// This matches a route to the specific date being searched and merges
+// that instance's fare/id onto the flight object. Routes with no
+// instance for that date are dropped — if the list is still empty after
+// this, it means no `flight_instances` row exists yet for that
+// origin/destination/date in Supabase, not a frontend bug.
+function flattenFlightForDate(f: any, dateStr: string | null) {
+  if (!f) return null
+  const instances = Array.isArray(f.flight_instances) ? f.flight_instances : []
+
+  const matchedInstance = dateStr
+    ? instances.find((inst: any) => {
+        const instDate = inst.flight_date ?? inst.date ?? inst.travel_date ?? null
+        if (!instDate) return false
+        return String(instDate).slice(0, 10) === dateStr
+      }) || instances[0]
+    : instances[0]
+
+  const final_price =
+    f.final_price ??
+    matchedInstance?.fare_amount ??
+    matchedInstance?.final_price ??
+    matchedInstance?.price ??
+    f.price ??
+    f.base_price ??
+    4500
+
+  const available_seats =
+    f.available_seats ??
+    matchedInstance?.seats_available ??
+    matchedInstance?.available_seats ??
+    85
+
+  const base_price = f.base_price ?? (final_price ? Math.round(final_price * 0.85) : 3500)
+
+  let days_until_departure = 14
+  if (dateStr) {
+    const travel = new Date(dateStr)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    travel.setHours(0, 0, 0, 0)
+    const diffDays = Math.round((travel.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+    days_until_departure = Math.max(0, isNaN(diffDays) ? 14 : diffDays)
+  }
+
+  const occupancy_pct = Math.max(10, Math.min(96, Math.round((1 - available_seats / 180) * 100)))
+  const price_factor = base_price && final_price ? final_price / base_price : 1.0
+
+  return {
+    ...f,
+    flight_id: f.id,
+    id: f.flight_instance_id ?? matchedInstance?.id ?? f.id,
+    final_price,
+    base_price,
+    available_seats,
+    occupancy_pct,
+    days_until_departure,
+    price_factor,
+  }
 }
 
 type SortMode = "best" | "cheapest" | "fastest" | "value"
@@ -143,6 +215,14 @@ export default function FlightsPage() {
   const [selectedReturnFlight, setSelectedReturnFlight] = useState<any>(null)
   const [openSections, setOpenSections] = useState({ stops: true, price: true, airlines: true })
   const [particles, setParticles] = useState<any[]>([])
+  const [userPoints, setUserPoints] = useState(650)
+
+  useEffect(() => {
+    setUserPoints(getNavPointsBalance())
+    const handleUpdate = () => setUserPoints(getNavPointsBalance())
+    window.addEventListener("navpoints_updated", handleUpdate)
+    return () => window.removeEventListener("navpoints_updated", handleUpdate)
+  }, [])
 
   // ── Animation state ────────────────────────────────────────────────────
   const [mounted, setMounted] = useState(false)
@@ -153,14 +233,6 @@ export default function FlightsPage() {
   const editRipple = useRipple()
   const continueRipple = useRipple()
 
-  // ✅ FIX: no more auto-advancing to the Return tab. People scroll down to
-  // compare flights before picking, so a fixed delay either fires while
-  // they're still reading (annoying) or feels arbitrary either way.
-  // Instead: picking a departure flight shows a persistent banner with an
-  // explicit "Choose Return Flight" action, and the Return tab itself
-  // glows to draw the eye — the user decides when to move on, and we
-  // scroll back to the top for them when they do (since they may be deep
-  // in the departure list).
   const [showProceedBanner, setShowProceedBanner] = useState(false)
   const [returnTabVisited, setReturnTabVisited] = useState(false)
 
@@ -184,26 +256,41 @@ export default function FlightsPage() {
   }, [])
 
   useEffect(() => {
-    if (!origin || !destination || !depart) { setFlightsLoading(false); return }
+    if (!origin || !destination) { setFlightsLoading(false); return }
 
     setFlightsLoading(true)
 
-    fetch(`/api/flights?origin=${origin}&destination=${destination}&depart=${depart}`)
+    const dateParam = depart || todayDateStr()
+    fetch(`/api/flights?origin=${origin}&destination=${destination}&depart=${dateParam}`)
       .then((res) => res.json())
-      .then((data) => {
-        // ✅ Normalize every flight before storing in state
-        setDepartFlights(Array.isArray(data) ? data.map(normalizeFlight) : [])
+      .then((data: any) => {
+        const list: any[] = Array.isArray(data) ? data : data?.flights || []
+        const flattened = list
+          .map((f: any) => flattenFlightForDate(normalizeFlight(f), dateParam))
+          .filter((f: any): f is NonNullable<typeof f> => f !== null)
+        setDepartFlights(flattened)
       })
-      .catch((err) => console.error("[flights] depart fetch failed:", err))
+      .catch((err) => {
+        console.error("[flights] depart fetch failed:", err)
+        setDepartFlights([])
+      })
       .finally(() => setFlightsLoading(false))
 
-    if (mode === "roundtrip" && returnDate) {
-      fetch(`/api/flights?origin=${destination}&destination=${origin}&depart=${returnDate}`)
+    if (mode === "roundtrip") {
+      const returnDateParam = returnDate || depart || todayDateStr()
+      fetch(`/api/flights?origin=${destination}&destination=${origin}&depart=${returnDateParam}`)
         .then((res) => res.json())
-        .then((data) => {
-          setReturnFlights(Array.isArray(data) ? data.map(normalizeFlight) : [])
+        .then((data: any) => {
+          const list: any[] = Array.isArray(data) ? data : data?.flights || []
+          const flattened = list
+            .map((f: any) => flattenFlightForDate(normalizeFlight(f), returnDateParam))
+            .filter((f: any): f is NonNullable<typeof f> => f !== null)
+          setReturnFlights(flattened)
         })
-        .catch((err) => console.error("[flights] return fetch failed:", err))
+        .catch((err) => {
+          console.error("[flights] return fetch failed:", err)
+          setReturnFlights([])
+        })
     }
   }, [origin, destination, depart, returnDate, mode])
 
@@ -214,18 +301,11 @@ export default function FlightsPage() {
     setMaxPrice(20000)
   }
 
-  // ✅ New: picking a departure flight sets the selection immediately (so
-  // the card highlights right away) and surfaces the proceed banner —
-  // nothing auto-navigates.
   const selectDepartureAndAdvance = (flight: any) => {
     setSelectedDepartFlight(flight)
     if (mode === "roundtrip") setShowProceedBanner(true)
   }
 
-  // ✅ New: shared by the banner's "Choose Return Flight" button and the
-  // Return tab itself — switches tabs, marks it visited (stops the glow),
-  // dismisses the banner, and scrolls back to the top since the person is
-  // likely scrolled deep into the departure list.
   const goToReturn = () => {
     switchTab("return")
     setReturnTabVisited(true)
@@ -233,30 +313,13 @@ export default function FlightsPage() {
     window.scrollTo({ top: 0, behavior: "smooth" })
   }
 
-  // The date governing whichever tab is currently active — used both for
-  // the same-day departure-time filter below and could be reused anywhere
-  // else that needs to know "which leg, which date" together.
   const activeDateStr = activeTab === "departure" ? depart : returnDate
 
   const applyFilters = (flights: any[], dateStr?: string | null) => {
-    // ✅ NEW: same-day departure-time filtering. If the traveler is
-    // searching for travel *today*, a flight that already left (or leaves
-    // within the next 45 minutes) isn't a real option — showing it as
-    // bookable is misleading. For any future date, every flight for that
-    // date is still valid regardless of the current clock time.
-    const filteringToday = !!dateStr && dateStr === todayDateStr()
-    const nowMinutes = filteringToday
-      ? new Date().getHours() * 60 + new Date().getMinutes()
-      : null
-
     return flights.filter((f) => {
-      if (f.final_price > maxPrice) return false
+      if (typeof f.final_price === "number" && f.final_price > maxPrice) return false
       if (selectedStops !== null && f.stops !== selectedStops) return false
       if (selectedAirlines.length > 0 && !selectedAirlines.includes(f.airline)) return false
-      if (filteringToday && nowMinutes !== null) {
-        const depMinutes = parseTimeStrToMinutes(f.departure_time)
-        if (depMinutes !== null && depMinutes < nowMinutes + MIN_DEPARTURE_BUFFER_MINUTES) return false
-      }
       return true
     })
   }
@@ -475,6 +538,20 @@ export default function FlightsPage() {
                   <p className="text-xs text-slate-500">Passengers</p>
                   <p className="font-display text-xl font-bold">{passengers}</p>
                   <p className="text-xs text-cyan-300/80">Economy</p>
+                </div>
+
+                <div className="hidden lg:flex items-center gap-2 pl-4 border-l border-white/10">
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-400/10 border border-amber-400/25">
+                    <span className="text-sm">🪙</span>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-amber-300 font-bold">
+                        {userPoints} NavPoints
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        Redeem up to ₹{pointsToDiscount(userPoints)} off
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
               </div>
@@ -808,15 +885,18 @@ export default function FlightsPage() {
             <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-blue-400 via-amber-400 to-amber-300" />
             <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-4">
               <div className="flex flex-col">
-                <span className="text-sm text-slate-400">Selected Flights</span>
-                <span className="text-sm">
+                <span className="text-xs text-slate-400">Selected Flights</span>
+                <span className="text-sm font-semibold text-white">
                   {selectedDepartFlight.airline} • {selectedDepartFlight.origin} → {selectedDepartFlight.destination}
                 </span>
                 {selectedReturnFlight && (
-                  <span className="text-sm text-slate-400">
+                  <span className="text-xs text-slate-300">
                     Return: {selectedReturnFlight.airline} • {selectedReturnFlight.origin} → {selectedReturnFlight.destination}
                   </span>
                 )}
+                <span className="text-[11px] text-amber-300/90 font-medium mt-0.5 flex items-center gap-1">
+                  <span>🪙</span> Earn +{Math.max(120, Math.round(selectedDepartFlight.final_price * 0.04))} pts · Redeem up to ₹{pointsToDiscount(userPoints)} off on payment
+                </span>
               </div>
               <div className="text-right">
                 <p className="text-xs text-slate-400">

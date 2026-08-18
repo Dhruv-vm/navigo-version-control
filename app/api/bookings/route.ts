@@ -252,14 +252,18 @@ export async function GET(req: Request) {
         id,
         pnr,
         status,
+        total_price,
+        paid_amount,
+        payment_method,
+        paid_at,
         created_at,
         depart:flight_instances!bookings_depart_flight_instance_id_fkey (
-          id, travel_date, flights ( airline, origin, destination, departure_time )
+          id, travel_date, flights ( airline, origin, destination, departure_time, arrival_time, aircraft )
         ),
         return:flight_instances!bookings_return_flight_instance_id_fkey (
-          id, travel_date, flights ( airline, origin, destination, departure_time )
+          id, travel_date, flights ( airline, origin, destination, departure_time, arrival_time, aircraft )
         ),
-        booking_passengers ( id, first_name, last_name, is_primary_contact ),
+        booking_passengers ( id, first_name, last_name, passenger_type, is_primary_contact ),
         booking_seats ( flight_instance_id, passenger_id, seat_number )
       `)
       .eq("user_id", user.userId)
@@ -282,6 +286,8 @@ export async function GET(req: Request) {
           destination: b.depart.flights?.destination || "—",
           travelDate: b.depart.travel_date,
           departureTime: b.depart.flights?.departure_time || undefined,
+          arrivalTime: b.depart.flights?.arrival_time || undefined,
+          aircraft: b.depart.flights?.aircraft || undefined,
         },
         b.return && {
           legLabel: "Return",
@@ -291,6 +297,8 @@ export async function GET(req: Request) {
           destination: b.return.flights?.destination || "—",
           travelDate: b.return.travel_date,
           departureTime: b.return.flights?.departure_time || undefined,
+          arrivalTime: b.return.flights?.arrival_time || undefined,
+          aircraft: b.return.flights?.aircraft || undefined,
         },
       ].filter(Boolean)
 
@@ -300,6 +308,7 @@ export async function GET(req: Request) {
         .map((p: any) => ({
           id: p.id,
           name: `${p.first_name} ${p.last_name}`.trim(),
+          type: p.passenger_type || "adult",
           isPrimary: !!p.is_primary_contact,
         }))
 
@@ -319,6 +328,11 @@ export async function GET(req: Request) {
         id: b.id,
         pnr: b.pnr || undefined,
         status: b.status,
+        totalPrice: b.total_price ?? b.paid_amount ?? undefined,
+        paidAmount: b.paid_amount ?? undefined,
+        paymentMethod: b.payment_method ?? undefined,
+        paidAt: b.paid_at ?? undefined,
+        createdAt: b.created_at ?? undefined,
         travelDate: earliestTravelDate,
         legs,
         passengers,
