@@ -2,17 +2,47 @@ import { supabase } from "@/lib/supabase"
 import { NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
 import jwt from "jsonwebtoken"
+import { verifyAdminCredentials } from "@/lib/admin-auth"
 
 export async function POST(req: Request) {
   try {
-    console.log("🔥 LOGIN START")
-
     const body = await req.json()
     const { email, password } = body
 
-    console.log("📦 INPUT:", email)
+    if (!email || !password) {
+      return NextResponse.json({ error: "Email and password are required" }, { status: 400 })
+    }
 
-    // 1️⃣ FIND USER
+    // 🌟 1️⃣ CHECK ADMIN CREDENTIALS FIRST
+    const adminUser = verifyAdminCredentials(email, password)
+    if (adminUser) {
+      const token = jwt.sign(
+        {
+          userId: adminUser.id,
+          email: adminUser.email,
+          role: adminUser.role,
+          isAdmin: true,
+        },
+        process.env.JWT_SECRET || "navigo_jwt_secret_token_2026",
+        { expiresIn: "7d" }
+      )
+
+      return NextResponse.json({
+        message: "Admin authentication successful",
+        isAdmin: true,
+        role: adminUser.role,
+        admin: adminUser,
+        token,
+        user: {
+          id: adminUser.id,
+          name: adminUser.name,
+          email: adminUser.email,
+          role: adminUser.role,
+        },
+      })
+    }
+
+    // 2️⃣ FIND STANDARD PASSENGER USER IN DATABASE
     const { data: user, error } = await supabase
       .from("users")
       .select("*")

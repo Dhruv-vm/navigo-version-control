@@ -134,6 +134,20 @@ export default function Navbar() {
             My Trips
           </button>
 
+          <button
+            onClick={() => router.push("/check-in")}
+            className={`relative px-3.5 py-1.5 rounded-full font-medium transition-all duration-200 flex items-center gap-1.5 ${
+              pathname === "/check-in"
+                ? "text-[#060B14] bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 shadow-[0_2px_12px_rgba(251,191,36,0.35)]"
+                : "text-slate-400 hover:text-white hover:bg-white/[0.05]"
+            }`}
+          >
+            <span>Check-In</span>
+            <span className="text-[8.5px] font-mono font-bold bg-amber-400/20 text-amber-300 px-1 py-[0.5px] rounded tracking-wider">
+              FAST
+            </span>
+          </button>
+
           <p className="px-4 py-1.5 rounded-full font-medium text-slate-400 hover:text-white hover:bg-white/[0.05] cursor-pointer transition-all duration-200">
             Deals
           </p>

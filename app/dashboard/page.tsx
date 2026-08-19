@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { motion, useInView, useReducedMotion, AnimatePresence } from "framer-motion"
 import Navbar from "@/components/navbar"
 import { BoardingPassCard } from "@/app/checkout/payment/BoardingPassCard"
@@ -130,6 +131,50 @@ export default function DashboardPage() {
   const [pointsModalOpen, setPointsModalOpen] = useState(false)
   const [userNavPoints, setUserNavPoints] = useState(650)
 
+  // Smart Check-In & DigiYatra Biometrics State
+  const [biometricProfile, setBiometricProfile] = useState<any>(null)
+  const [smartBoardingActive, setSmartBoardingActive] = useState(true)
+  const [deleteBioModalOpen, setDeleteBioModalOpen] = useState(false)
+  const [deletingBio, setDeletingBio] = useState(false)
+  const [checkedInPnrs, setCheckedInPnrs] = useState<Record<string, { isSmart: boolean; qrToken?: string }>>({})
+
+  // Load Biometric Profile
+  useEffect(() => {
+    const token = localStorage.getItem("token")
+    if (!token) return
+
+    fetch("/api/biometrics/profile", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.hasProfile && d.profile) {
+          setBiometricProfile(d.profile)
+          setSmartBoardingActive(d.profile.isActive)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  const handleDeleteBiometricProfile = async () => {
+    setDeletingBio(true)
+    try {
+      const token = localStorage.getItem("token")
+      const res = await fetch("/api/biometrics/profile", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        setBiometricProfile(null)
+        setDeleteBioModalOpen(false)
+      }
+    } catch {
+      // Fallback
+    } finally {
+      setDeletingBio(false)
+    }
+  }
+
   useEffect(() => {
     setUserNavPoints(getNavPointsBalance())
     const handleUpdate = () => setUserNavPoints(getNavPointsBalance())
@@ -170,17 +215,21 @@ export default function DashboardPage() {
     }
   }, [])
 
-  const now = Date.now()
-  const upcoming = (bookings || [])
-    .filter((b) => b.travelDate && new Date(b.travelDate).getTime() >= now && b.status === "confirmed")
-    .sort((a, b) => new Date(a.travelDate!).getTime() - new Date(b.travelDate!).getTime())
+  const todayStr = new Date().toISOString().split("T")[0]
+  const confirmedBookings = (bookings || []).filter(
+    (b) => b.status === "confirmed" || b.status === "paid"
+  )
+
+  const upcoming = confirmedBookings
+    .filter((b) => !b.travelDate || b.travelDate >= todayStr)
+    .sort((a, b) => (a.travelDate || "").localeCompare(b.travelDate || ""))
 
   const past = (bookings || [])
-    .filter((b) => (b.travelDate && new Date(b.travelDate).getTime() < now) || b.status === "completed")
-    .sort((a, b) => new Date(b.travelDate!).getTime() - new Date(a.travelDate!).getTime())
+    .filter((b) => (b.travelDate && b.travelDate < todayStr) || b.status === "completed")
+    .sort((a, b) => (b.travelDate || "").localeCompare(a.travelDate || ""))
 
-  const nextTrip = upcoming[0]
-  const restUpcoming = upcoming.slice(1)
+  const nextTrip = upcoming[0] || confirmedBookings[0]
+  const restUpcoming = upcoming.length > 0 ? upcoming.slice(1) : confirmedBookings.slice(1)
 
   // Live gate fetch
   useEffect(() => {
@@ -378,6 +427,85 @@ export default function DashboardPage() {
                       </div>
                     </div>
 
+                    {/* Smart Boarding Status Banner */}
+                    {biometricProfile?.isActive || (nextTrip.pnr && checkedInPnrs[nextTrip.pnr]?.isSmart) ? (
+                      <div className="mb-4 p-5 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-slate-900/60 to-cyan-950/40 border border-emerald-500/30 shadow-[0_4px_20px_rgba(16,185,129,0.15)] relative overflow-hidden">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                          <div className="flex items-start gap-3.5">
+                            <div className="w-11 h-11 rounded-xl bg-emerald-400/20 border border-emerald-400/40 flex items-center justify-center text-2xl text-emerald-300 shrink-0 shadow-[0_0_16px_rgba(52,211,153,0.3)]">
+                              ✓
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-sm font-bold text-white font-display uppercase tracking-wide">
+                                  SMART BOARDING
+                                </h4>
+                                <span className="text-[9px] font-mono font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-400/20 text-emerald-300 border border-emerald-400/40">
+                                  ✓ READY
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1 text-xs font-mono mt-2 text-slate-300">
+                                <div>
+                                  <span className="text-slate-500 block text-[10px] uppercase">Passenger</span>
+                                  <strong className="text-white truncate block">{nextTrip.passengers?.[0]?.name || "Traveler"}</strong>
+                                </div>
+                                <div>
+                                  <span className="text-slate-500 block text-[10px] uppercase">Flight</span>
+                                  <strong className="text-cyan-300">{nextTrip.legs?.[0]?.airline || "Navigo"} {deriveFlightNumber(nextTrip.legs?.[0]?.airline || "Navigo", nextTrip.legs?.[0]?.flightInstanceId)}</strong>
+                                </div>
+                                <div>
+                                  <span className="text-slate-500 block text-[10px] uppercase">Route</span>
+                                  <strong className="text-white">{nextTrip.legs?.[0]?.origin || "DEL"} → {nextTrip.legs?.[0]?.destination || "BLR"}</strong>
+                                </div>
+                                <div>
+                                  <span className="text-slate-500 block text-[10px] uppercase">Status</span>
+                                  <strong className="text-emerald-400">Smart Boarding Enabled</strong>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setActivePassBooking(nextTrip)}
+                              className="px-4 py-2 rounded-full bg-emerald-400 text-slate-950 text-xs font-bold shadow-[0_2px_14px_rgba(52,211,153,0.35)] hover:bg-emerald-300 transition-colors flex items-center gap-1.5"
+                            >
+                              <span>📱</span> Show Boarding QR
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mb-4 p-4 rounded-2xl bg-gradient-to-r from-amber-950/30 via-slate-900/60 to-slate-900/40 border border-amber-500/25 flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-amber-400/15 border border-amber-400/25 flex items-center justify-center text-xl text-amber-300">
+                            👤
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-sm font-bold text-white font-display">SMART BOARDING</h4>
+                              <span className="text-[9px] font-mono font-bold uppercase px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300">
+                                FAST-TRACK
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              Speed up your airport journey with verified biometric boarding.
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            setCheckInPnr(nextTrip.pnr || "")
+                            setCheckInOpen(true)
+                          }}
+                          className="px-4 py-2 rounded-full pill-cta text-xs font-bold shadow-[0_2px_12px_rgba(251,191,36,0.3)] flex items-center gap-1.5"
+                        >
+                          <span>⚡</span> Enable Smart Boarding →
+                        </button>
+                      </div>
+                    )}
+
                     <NextTripPasses booking={nextTrip} gateMap={gateMap} />
                   </div>
 
@@ -506,6 +634,96 @@ export default function DashboardPage() {
               </div>
             </motion.div>
 
+            {/* DigiYatra Smart Boarding & Face ID Settings Card */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-40px" }}
+              transition={{ duration: 0.5, delay: 0.18 }}
+            >
+              <div className="relative bg-gradient-to-b from-[#0A1628] to-[#060D18] border border-cyan-500/25 rounded-3xl p-5 sm:p-6 overflow-hidden shadow-xl">
+                <div className="pointer-events-none absolute -top-16 -right-16 w-40 h-40 bg-emerald-400/10 blur-3xl rounded-full" />
+
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">👤</span>
+                    <div>
+                      <h4 className="text-sm font-bold text-white">Smart Boarding Profile</h4>
+                      <p className="text-[10px] text-slate-400 font-mono">DIGIYATRA BIOMETRIC ID</p>
+                    </div>
+                  </div>
+                  <span
+                    className={`text-[9px] font-mono font-bold uppercase px-2.5 py-1 rounded-full ${
+                      biometricProfile
+                        ? "bg-emerald-400/15 text-emerald-300 border border-emerald-400/30"
+                        : "bg-slate-400/15 text-slate-400 border border-slate-400/30"
+                    }`}
+                  >
+                    {biometricProfile ? "ACTIVE ✓" : "NOT CONFIGURED"}
+                  </span>
+                </div>
+
+                <div className="space-y-2.5 text-xs text-slate-300 pt-3 border-t border-white/[0.08]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Smart Check-In:</span>
+                    <button
+                      onClick={() => setSmartBoardingActive(!smartBoardingActive)}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                        smartBoardingActive ? "bg-emerald-400" : "bg-slate-700"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-slate-950 transition-transform ${
+                          smartBoardingActive ? "translate-x-4" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Profile Reference:</span>
+                    <span className="font-mono text-amber-300 font-bold">
+                      {biometricProfile?.biometricProfileId || "Unregistered"}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Last Verified:</span>
+                    <span className="text-slate-300 font-mono">
+                      {biometricProfile?.lastVerifiedAt
+                        ? new Date(biometricProfile.lastVerifiedAt).toLocaleDateString("en-IN", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })
+                        : "Pending enrollment"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 mt-4 pt-3 border-t border-white/[0.06]">
+                  {biometricProfile ? (
+                    <button
+                      onClick={() => setDeleteBioModalOpen(true)}
+                      className="w-full py-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 hover:bg-rose-500/20 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <span>🗑️</span> Remove Face Profile
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setCheckInPnr(nextTrip?.pnr || "")
+                        setCheckInOpen(true)
+                      }}
+                      className="px-3 py-2 rounded-xl pill-cta text-slate-950 text-[11px] font-bold shadow-[0_2px_8px_rgba(251,191,36,0.3)] transition-all"
+                    >
+                      Setup Face ID
+                    </button>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+
             {/* Destination Weather & Insights Widget */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -611,6 +829,54 @@ export default function DashboardPage() {
         onClose={() => setPointsModalOpen(false)}
         onExploreFlights={() => router.push("/")}
       />
+
+      {/* Delete Biometric Profile Confirmation Modal */}
+      <AnimatePresence>
+        {deleteBioModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDeleteBioModalOpen(false)}
+              className="fixed inset-0 bg-[#020617]/85 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.94 }}
+              className="relative w-full max-w-md bg-[#0A1424] border border-rose-500/30 rounded-3xl p-6 shadow-2xl z-10 overflow-hidden"
+            >
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-2xl flex items-center justify-center mb-4">
+                ⚠️
+              </div>
+              <h3 className="font-display text-lg font-bold text-white">
+                Remove Smart Boarding Face ID?
+              </h3>
+              <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+                This will permanently delete your stored facial feature vector template and disable DigiYatra express fast-track e-gate clearance. You will need to re-register your face for future flights.
+              </p>
+              <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-white/[0.08]">
+                <button
+                  type="button"
+                  onClick={() => setDeleteBioModalOpen(false)}
+                  className="px-4 py-2 rounded-full border border-white/[0.1] text-xs font-semibold text-slate-300 hover:bg-white/[0.05]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteBiometricProfile}
+                  disabled={deletingBio}
+                  className="px-5 py-2 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-[0_2px_12px_rgba(244,63,94,0.35)] transition-colors disabled:opacity-50"
+                >
+                  {deletingBio ? "Removing…" : "Confirm Deletion"}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
@@ -852,11 +1118,17 @@ function Ticker({
   items: { airline: string; origin: string; destination: string; pnr?: string; status: string }[]
 }) {
   const doubled = [...items, ...items]
+  // Constant, relaxed linear velocity regardless of item count (at least 45s, +9s per item)
+  const speedSeconds = Math.max(45, items.length * 9)
+
   return (
     <div className="relative mb-10 -mx-4 sm:-mx-0 overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02]">
       <div className="pointer-events-none absolute inset-y-0 left-0 w-16 z-10 bg-gradient-to-r from-[#04070F] to-transparent" />
       <div className="pointer-events-none absolute inset-y-0 right-0 w-16 z-10 bg-gradient-to-l from-[#04070F] to-transparent" />
-      <div className="flex w-max marquee-track py-2.5">
+      <div
+        className="flex w-max marquee-track py-2.5"
+        style={{ animationDuration: `${speedSeconds}s` }}
+      >
         {doubled.map((item, i) => (
           <span key={i} className="flex items-center gap-3 px-5 text-xs whitespace-nowrap">
             <span className="text-amber-300" aria-hidden>
@@ -1438,7 +1710,8 @@ function PageStyles() {
         }
       }
       .marquee-track {
-        animation: marqueeScroll 28s linear infinite;
+        animation: marqueeScroll 50s linear infinite;
+        will-change: transform;
       }
       .marquee-track:hover {
         animation-play-state: paused;

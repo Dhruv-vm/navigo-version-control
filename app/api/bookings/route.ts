@@ -246,59 +246,73 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
     }
 
-    const { data, error } = await supabase
+    // 1. Fetch user bookings + child rows strictly isolated by user_id
+    const { data: rawBookings, error: bErr } = await supabase
       .from("bookings")
-      .select(`
-        id,
-        pnr,
-        status,
-        total_price,
-        paid_amount,
-        payment_method,
-        paid_at,
-        created_at,
-        depart:flight_instances!bookings_depart_flight_instance_id_fkey (
-          id, travel_date, flights ( airline, origin, destination, departure_time, arrival_time, aircraft )
-        ),
-        return:flight_instances!bookings_return_flight_instance_id_fkey (
-          id, travel_date, flights ( airline, origin, destination, departure_time, arrival_time, aircraft )
-        ),
-        booking_passengers ( id, first_name, last_name, passenger_type, is_primary_contact ),
-        booking_seats ( flight_instance_id, passenger_id, seat_number )
-      `)
+      .select("*, booking_passengers(*), booking_seats(*)")
       .eq("user_id", user.userId)
       .order("created_at", { ascending: false })
 
-    if (error) {
-      console.error("BOOKINGS GET ERROR:", error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+    if (bErr) {
+      console.error("BOOKINGS GET ERROR:", bErr)
+      return NextResponse.json({ error: bErr.message }, { status: 500 })
     }
 
-    const bookings = (data || []).map((b: any) => {
-      const isRoundTrip = !!b.return
+    // 2. Fetch associated flight instances and flights
+    const instanceIds = Array.from(
+      new Set(
+        (rawBookings || [])
+          .flatMap((b) => [b.depart_flight_instance_id, b.return_flight_instance_id])
+          .filter(Boolean)
+      )
+    )
+
+    let instanceMap = new Map<string, any>()
+    if (instanceIds.length > 0) {
+      const { data: instances, error: instErr } = await supabase
+        .from("flight_instances")
+        .select("*, flights(*)")
+        .in("id", instanceIds)
+
+      if (!instErr && instances) {
+        instanceMap = new Map(instances.map((i) => [i.id, i]))
+      }
+    }
+
+    // 3. Map into clean frontend Booking objects
+    const bookings = (rawBookings || []).map((b: any) => {
+      const depInst = instanceMap.get(b.depart_flight_instance_id)
+      const depFlight = depInst?.flights
+      const retInst = b.return_flight_instance_id ? instanceMap.get(b.return_flight_instance_id) : null
+      const retFlight = retInst?.flights
+      const isRoundTrip = !!retInst
 
       const legs = [
-        b.depart && {
+        depInst && {
           legLabel: isRoundTrip ? "Departure" : null,
-          flightInstanceId: b.depart.id,
-          airline: b.depart.flights?.airline || "—",
-          origin: b.depart.flights?.origin || "—",
-          destination: b.depart.flights?.destination || "—",
-          travelDate: b.depart.travel_date,
-          departureTime: b.depart.flights?.departure_time || undefined,
-          arrivalTime: b.depart.flights?.arrival_time || undefined,
-          aircraft: b.depart.flights?.aircraft || undefined,
+          flightInstanceId: depInst.id,
+          airline: depFlight?.airline || "Navigo Airlines",
+          origin: depFlight?.origin || "DEL",
+          destination: depFlight?.destination || "BLR",
+          travelDate: depInst.travel_date,
+          departureTime: depFlight?.departure_time || undefined,
+          arrivalTime: depFlight?.arrival_time || undefined,
+          aircraft: depFlight?.aircraft || undefined,
+          gate: depInst.gate || "G4",
+          operationalStatus: depInst.status || "SCHEDULED",
         },
-        b.return && {
+        retInst && {
           legLabel: "Return",
-          flightInstanceId: b.return.id,
-          airline: b.return.flights?.airline || "—",
-          origin: b.return.flights?.origin || "—",
-          destination: b.return.flights?.destination || "—",
-          travelDate: b.return.travel_date,
-          departureTime: b.return.flights?.departure_time || undefined,
-          arrivalTime: b.return.flights?.arrival_time || undefined,
-          aircraft: b.return.flights?.aircraft || undefined,
+          flightInstanceId: retInst.id,
+          airline: retFlight?.airline || "Navigo Airlines",
+          origin: retFlight?.origin || "BLR",
+          destination: retFlight?.destination || "DEL",
+          travelDate: retInst.travel_date,
+          departureTime: retFlight?.departure_time || undefined,
+          arrivalTime: retFlight?.arrival_time || undefined,
+          aircraft: retFlight?.aircraft || undefined,
+          gate: retInst.gate || "G4",
+          operationalStatus: retInst.status || "SCHEDULED",
         },
       ].filter(Boolean)
 
@@ -307,7 +321,7 @@ export async function GET(req: Request) {
         .sort((a: any, bb: any) => (a.is_primary_contact === bb.is_primary_contact ? 0 : a.is_primary_contact ? -1 : 1))
         .map((p: any) => ({
           id: p.id,
-          name: `${p.first_name} ${p.last_name}`.trim(),
+          name: `${p.title ? p.title + " " : ""}${p.first_name || ""} ${p.last_name || ""}`.trim() || "Traveler",
           type: p.passenger_type || "adult",
           isPrimary: !!p.is_primary_contact,
         }))
@@ -322,14 +336,14 @@ export async function GET(req: Request) {
       const earliestTravelDate = legs.reduce((min: string | null, leg: any) => {
         if (!leg?.travelDate) return min
         return !min || leg.travelDate < min ? leg.travelDate : min
-      }, null as string | null)
+      }, null as string | null) || depInst?.travel_date || b.created_at?.split("T")[0]
 
       return {
         id: b.id,
         pnr: b.pnr || undefined,
         status: b.status,
         totalPrice: b.total_price ?? b.paid_amount ?? undefined,
-        paidAmount: b.paid_amount ?? undefined,
+        paidAmount: b.paid_amount ?? b.total_price ?? undefined,
         paymentMethod: b.payment_method ?? undefined,
         paidAt: b.paid_at ?? undefined,
         createdAt: b.created_at ?? undefined,

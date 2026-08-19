@@ -202,6 +202,54 @@ export default function AddonsPage() {
   const [chosen, setChosen] = useState<Record<string, number>>({})
   const [activeCategory, setActiveCategory] = useState<CategoryId>("recommended")
   const [summaryOpen, setSummaryOpen] = useState(true)
+  const [dynamicCatalog, setDynamicCatalog] = useState<any[]>([])
+
+  useEffect(() => {
+    fetch("/api/addons")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.addons) setDynamicCatalog(d.addons)
+      })
+      .catch(() => {})
+  }, [])
+
+  const activeAllAddons = useMemo(() => {
+    if (!dynamicCatalog || dynamicCatalog.length === 0) return ALL_ADDONS
+    const priceMap = new Map(dynamicCatalog.map((c) => [c.id, c.price]))
+    return ALL_ADDONS.map((addon) => {
+      const matchedPrice =
+        priceMap.get(`addon-${addon.id}`) ||
+        priceMap.get(addon.id) ||
+        (addon.id === "baggage" && priceMap.get("addon-bag-15")) ||
+        (addon.id === "baggage10" && (priceMap.get("addon-bag-15") ? Math.round(priceMap.get("addon-bag-15")! * 0.6) : undefined)) ||
+        (addon.id === "meal" && priceMap.get("addon-meal-exec")) ||
+        (addon.id === "lounge" && priceMap.get("addon-lounge-del")) ||
+        (addon.id === "priority" && priceMap.get("addon-priority-board")) ||
+        (addon.id === "wifi" && priceMap.get("addon-wifi-high")) ||
+        (addon.id === "insurance" && priceMap.get("addon-insurance")) ||
+        (addon.id === "fasttrack" && priceMap.get("addon-priority-board"))
+
+      if (matchedPrice !== undefined) {
+        return {
+          ...addon,
+          variants: addon.variants.map((v) => ({ ...v, price: matchedPrice })),
+        }
+      }
+      return addon
+    })
+  }, [dynamicCatalog])
+
+  const activeRecommendedAddons = useMemo(() => {
+    return activeAllAddons.filter((a) =>
+      ["baggage", "legroom", "meal", "lounge"].includes(a.id)
+    )
+  }, [activeAllAddons])
+
+  const activeMoreAddons = useMemo(() => {
+    return activeAllAddons.filter(
+      (a) => !["baggage", "legroom", "meal", "lounge"].includes(a.id)
+    )
+  }, [activeAllAddons])
 
   // ── Hold countdown ──────────────────────────────────────────────────
   // Backed by the real bookings.hold_expires_at set when seats were saved
@@ -265,7 +313,7 @@ export default function AddonsPage() {
     let savings = 0
     const list: { addon: Addon; variant: AddonVariant }[] = []
     for (const [id, variantIdx] of Object.entries(chosen)) {
-      const addon = ALL_ADDONS.find((a) => a.id === id)
+      const addon = activeAllAddons.find((a) => a.id === id)
       if (!addon) continue
       const variant = addon.variants[variantIdx]
       if (!variant) continue
@@ -274,11 +322,11 @@ export default function AddonsPage() {
       list.push({ addon, variant })
     }
     return { addonsTotal: total, addonsSavings: savings, selectedList: list }
-  }, [chosen])
+  }, [chosen, activeAllAddons])
 
   const categoryAddons = useMemo(
-    () => (activeCategory === "recommended" ? [] : ALL_ADDONS.filter((a) => a.category === activeCategory)),
-    [activeCategory]
+    () => (activeCategory === "recommended" ? [] : activeAllAddons.filter((a) => a.category === activeCategory)),
+    [activeCategory, activeAllAddons]
   )
 
   const handleContinue = () => {
@@ -396,7 +444,7 @@ export default function AddonsPage() {
               <div>
                 <p className="font-display text-lg font-bold text-white mb-3">Recommended For You</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {RECOMMENDED_ADDONS.map((addon) => (
+                  {activeRecommendedAddons.map((addon) => (
                     <AddonCard
                       key={addon.id}
                       addon={addon}
@@ -411,16 +459,9 @@ export default function AddonsPage() {
 
               <div>
                 <p className="font-display text-lg font-bold text-white mb-3">More Add-ons For You</p>
-                {/* ✅ LAYOUT FIX: 5 cards in a 3-col grid left an uneven last
-                    row (2 cards + a dead gap where the 6th would be) — the
-                    exact "positional" wrongness being flagged. A horizontal
-                    scroll strip has no row-count constraint, so it never
-                    leaves a gap regardless of how many add-ons exist, and
-                    reads as a deliberate "browse more" rail instead of a
-                    grid that ran out of items. */}
                 <div className="relative -mx-6 px-6">
                   <div className="flex gap-3.5 overflow-x-auto pb-1 no-scrollbar snap-x snap-mandatory">
-                    {MORE_ADDONS.map((addon) => (
+                    {activeMoreAddons.map((addon) => (
                       <div key={addon.id} className="w-[200px] sm:w-[212px] shrink-0 snap-start">
                         <AddonMiniCard
                           addon={addon}

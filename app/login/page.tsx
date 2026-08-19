@@ -32,7 +32,12 @@ export default function LoginPage() {
       }
 
       localStorage.setItem("token", data.token)
-      router.push("/")
+      if (data.isAdmin || data.role) {
+        localStorage.setItem("navigo_admin_session", JSON.stringify(data.admin || data.user))
+        router.push("/admin")
+      } else {
+        router.push("/")
+      }
     } catch (err) {
       setError("Something went wrong")
     }

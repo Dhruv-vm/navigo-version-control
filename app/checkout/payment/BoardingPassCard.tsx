@@ -40,23 +40,47 @@ export type BoardingPassCardProps = {
   // has flown), and the whole pass gets a subtle desaturation + an
   // "EXPIRED" ribbon so it reads as a keepsake, not a valid document.
   expired?: boolean
+  // ✅ Smart Check-In / DigiYatra biometric verification indicator
+  smartBoardingVerified?: boolean
+  qrToken?: string
 }
 
-function buildVerifyUrl(pnr: string, legLabel?: string) {
+function buildVerifyUrl(pnr: string, legLabel?: string, qrToken?: string) {
   const base = typeof window !== "undefined" ? window.location.origin : "https://navigo.app"
+  if (qrToken) {
+    return `${base}/gate/verify?token=${encodeURIComponent(qrToken)}`
+  }
   const params = new URLSearchParams({ pnr })
   if (legLabel) params.set("leg", legLabel.toLowerCase())
-  return `${base}/verify?${params.toString()}`
+  return `${base}/gate/verify?${params.toString()}`
 }
 
 export const BoardingPassCard = forwardRef<HTMLDivElement, BoardingPassCardProps>(function BoardingPassCard(
-  { pnr, passengerName, airline, logoSrc, origin, destination, dateLabel, timeLabel, gate, flightNumber, seat, legLabel, addons, index = 0, expired = false },
+  {
+    pnr,
+    passengerName,
+    airline,
+    logoSrc,
+    origin,
+    destination,
+    dateLabel,
+    timeLabel,
+    gate,
+    flightNumber,
+    seat,
+    legLabel,
+    addons,
+    index = 0,
+    expired = false,
+    smartBoardingVerified = true,
+    qrToken,
+  },
   ref
 ) {
   const theme = getAirlineTheme(airline)
   const darkTitle = theme.titleColor === "#FFFFFF"
 
-  const verifyUrl = buildVerifyUrl(pnr, legLabel)
+  const verifyUrl = buildVerifyUrl(pnr, legLabel, qrToken)
   const barcodeSeed = `${pnr}:${origin}:${destination}:${legLabel ?? ""}`
 
   return (
@@ -99,9 +123,16 @@ export const BoardingPassCard = forwardRef<HTMLDivElement, BoardingPassCardProps
             <span className="font-display text-base font-bold uppercase tracking-wide whitespace-nowrap" style={{ color: theme.titleColor }}>{airline}</span>
             <span className="hidden sm:flex ml-auto shrink-0 items-center gap-3">
               <img src="/logo.png" alt="Navigo" className="w-11 h-11 object-contain" />
-              <span className="font-display text-[15px] font-extrabold tracking-[0.25em] whitespace-nowrap" style={{ color: theme.titleColor }}>
-                E-BOARDING PASS
-              </span>
+              <div className="flex flex-col items-end">
+                <span className="font-display text-[14px] font-extrabold tracking-[0.22em] whitespace-nowrap" style={{ color: theme.titleColor }}>
+                  E-BOARDING PASS
+                </span>
+                {smartBoardingVerified && (
+                  <span className="inline-flex items-center gap-1 text-[8.5px] font-mono font-bold tracking-widest uppercase text-amber-300 bg-amber-400/20 border border-amber-400/40 px-1.5 py-[1px] rounded-full mt-0.5">
+                    <span>⚡</span> DIGIYATRA VERIFIED
+                  </span>
+                )}
+              </div>
             </span>
           </div>
 

@@ -135,22 +135,22 @@ function MyTripsContent() {
     }
   }, [bookings])
 
-  const now = Date.now()
+  const todayStr = new Date().toISOString().split("T")[0]
 
   const upcomingBookings = useMemo(() => {
     return (bookings || []).filter(
-      (b) => b.travelDate && new Date(b.travelDate).getTime() >= now && b.status === "confirmed"
+      (b) => (!b.travelDate || b.travelDate >= todayStr) && (b.status === "confirmed" || b.status === "paid")
     )
-  }, [bookings, now])
+  }, [bookings, todayStr])
 
   const pastBookings = useMemo(() => {
     return (bookings || []).filter(
-      (b) => (b.travelDate && new Date(b.travelDate).getTime() < now) || b.status === "completed"
+      (b) => (b.travelDate && b.travelDate < todayStr) || b.status === "completed"
     )
-  }, [bookings, now])
+  }, [bookings, todayStr])
 
   const cancelledBookings = useMemo(() => {
-    return (bookings || []).filter((b) => b.status === "cancelled" || b.status === "draft")
+    return (bookings || []).filter((b) => b.status === "cancelled")
   }, [bookings])
 
   // Filtered by active tab

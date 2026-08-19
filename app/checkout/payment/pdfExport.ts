@@ -21,15 +21,16 @@
 
 const A4_WIDTH_MM = 210
 const A4_HEIGHT_MM = 297
-const MARGIN_X_MM = 15
+const MARGIN_X_MM = 12
 const CONTENT_WIDTH_MM = A4_WIDTH_MM - MARGIN_X_MM * 2
-const HEADER_BAND_MM = 32 // navy band height
-const CONTENT_TOP_MM = HEADER_BAND_MM + 7 // below band + gold rule + breathing room
-const CONTENT_BOTTOM_MM = 267 // above footer rule
-const PASS_GAP_MM = 8
+const HEADER_BAND_MM = 28 // sleek executive band height
+const CONTENT_TOP_MM = HEADER_BAND_MM + 9 // generous breathing room below gold line
+const CONTENT_BOTTOM_MM = 268 // above footer rule
+const PASS_GAP_MM = 6
 
-const NAVY: [number, number, number] = [10, 20, 36] // #0A1424
-const GOLD: [number, number, number] = [212, 175, 55] // #D4AF37
+const NAVY: [number, number, number] = [8, 17, 32] // #081120 Luxury Navy
+const GOLD: [number, number, number] = [212, 175, 55] // #D4AF37 Gold
+const CYAN: [number, number, number] = [56, 189, 248] // #38BDF8 Sky
 
 async function loadImageDataUrl(url: string): Promise<string | null> {
   try {
@@ -48,44 +49,55 @@ async function loadImageDataUrl(url: string): Promise<string | null> {
 }
 
 function drawHeader(pdf: any, logoDataUrl: string | null) {
-  // Full-width navy band — the airline-document look, matching the
-  // amber/navy palette used throughout the checkout flow.
+  // 1. Full-width luxury navy band
   pdf.setFillColor(NAVY[0], NAVY[1], NAVY[2])
   pdf.rect(0, 0, A4_WIDTH_MM, HEADER_BAND_MM, "F")
 
-  // Gold accent rule along the bottom edge of the band.
+  // 2. Full-width Cyan & Gold precision accent rules at bottom
+  pdf.setFillColor(CYAN[0], CYAN[1], CYAN[2])
+  pdf.rect(0, HEADER_BAND_MM - 0.4, A4_WIDTH_MM, 0.4, "F")
   pdf.setFillColor(GOLD[0], GOLD[1], GOLD[2])
   pdf.rect(0, HEADER_BAND_MM, A4_WIDTH_MM, 0.8, "F")
 
-  // White rounded chip so the gold Navigo mark pops against the navy.
-  const chip = 15
-  pdf.setFillColor(255, 255, 255)
-  pdf.roundedRect(MARGIN_X_MM, 8, chip, chip, 2, 2, "F")
+  // 3. Logo Placement (Crisp, perfectly sized & vertically centered without harsh white block)
+  const logoSize = 15
+  const logoX = MARGIN_X_MM
+  const logoY = 6.5
+
   if (logoDataUrl) {
-    pdf.addImage(logoDataUrl, "PNG", MARGIN_X_MM + 1.5, 9.5, chip - 3, chip - 3)
+    pdf.addImage(logoDataUrl, "PNG", logoX, logoY, logoSize, logoSize)
   }
 
-  const textX = MARGIN_X_MM + chip + 5
+  const textX = logoX + logoSize + 4.5
 
-  // Wordmark
+  // 4. Wordmark
   pdf.setFont("helvetica", "bold")
-  pdf.setFontSize(20)
+  pdf.setFontSize(16.5)
   pdf.setTextColor(255, 255, 255)
-  pdf.text("NAVIGO", textX, 17.5)
+  pdf.text("NAVIGO", textX, 13)
 
-  // Subtitle
+  // 5. Official Subtitles & Badge
+  pdf.setFont("helvetica", "bold")
+  pdf.setFontSize(7)
+  pdf.setTextColor(GOLD[0], GOLD[1], GOLD[2])
+  pdf.text("OFFICIAL E-BOARDING PASS", textX, 18)
+
   pdf.setFont("helvetica", "normal")
-  pdf.setFontSize(8)
-  pdf.setTextColor(168, 178, 192)
-  pdf.text("E-BOARDING PASS  ·  OFFICIAL TRAVEL DOCUMENT", textX, 23.5)
-
-  // Right-aligned generated meta block
-  const rightX = A4_WIDTH_MM - MARGIN_X_MM
   pdf.setFontSize(6.5)
-  pdf.setTextColor(150, 160, 175)
-  pdf.text("GENERATED", rightX, 12, { align: "right" })
+  pdf.setTextColor(148, 163, 184)
+  pdf.text("ELECTRONIC PASSENGER COUPON  ·  SECURE TRAVEL DOCUMENT", textX, 22.5)
+
+  // 6. Right-aligned document status / meta block
+  const rightX = A4_WIDTH_MM - MARGIN_X_MM
+
+  pdf.setFont("helvetica", "bold")
+  pdf.setFontSize(6.2)
+  pdf.setTextColor(148, 163, 184)
+  pdf.text("DATE OF ISSUE", rightX, 10.5, { align: "right" })
+
+  pdf.setFont("helvetica", "bold")
   pdf.setFontSize(9)
-  pdf.setTextColor(228, 232, 238)
+  pdf.setTextColor(255, 255, 255)
   pdf.text(
     new Date().toLocaleDateString("en-IN", {
       day: "numeric",
@@ -93,44 +105,46 @@ function drawHeader(pdf: any, logoDataUrl: string | null) {
       year: "numeric",
     }),
     rightX,
-    17,
+    15.5,
     { align: "right" }
   )
-  pdf.setFontSize(7)
-  pdf.setTextColor(150, 160, 175)
-  pdf.text("navigo.app", rightX, 22.5, { align: "right" })
+
+  pdf.setFont("helvetica", "bold")
+  pdf.setFontSize(6.8)
+  pdf.setTextColor(GOLD[0], GOLD[1], GOLD[2])
+  pdf.text("navigo.app  ·  VALIDATED", rightX, 20.5, { align: "right" })
 }
 
 function drawFooter(pdf: any, pageNum: number, totalPages: number) {
-  pdf.setDrawColor(225, 225, 225)
-  pdf.setLineWidth(0.2)
+  pdf.setDrawColor(212, 175, 55)
+  pdf.setLineWidth(0.3)
   pdf.line(MARGIN_X_MM, CONTENT_BOTTOM_MM, A4_WIDTH_MM - MARGIN_X_MM, CONTENT_BOTTOM_MM)
 
   const rules = [
-    "Please arrive at the airport at least 2 hours before domestic departure and 3 hours before international departure.",
-    "Carry a valid government-issued photo ID matching the passenger name shown on this pass at every security checkpoint.",
-    "Boarding gates close 40 minutes prior to scheduled departure. Late arrivals may be denied boarding.",
-    "This is a computer-generated document and does not require a signature or stamp to be valid.",
+    "• Please arrive at the airport at least 2 hours before domestic departure and 3 hours before international departure.",
+    "• Carry a valid government-issued photo ID / passport matching the passenger name shown on this pass at security checkpoints.",
+    "• Boarding gates close 40 minutes prior to scheduled departure. Late arrivals may be denied boarding.",
+    "• This is a verified electronic travel document issued via Navigo Booking Systems.",
   ]
 
-  pdf.setFont("helvetica", "italic")
-  pdf.setFontSize(7.2)
-  pdf.setTextColor(115, 115, 115)
+  pdf.setFont("helvetica", "normal")
+  pdf.setFontSize(6.8)
+  pdf.setTextColor(115, 125, 140)
 
-  let y = CONTENT_BOTTOM_MM + 5
+  let y = CONTENT_BOTTOM_MM + 4.5
   for (const line of rules) {
     const wrapped = pdf.splitTextToSize(line, CONTENT_WIDTH_MM)
     pdf.text(wrapped, MARGIN_X_MM, y)
-    y += wrapped.length * 3.2
+    y += wrapped.length * 2.8
   }
 
-  pdf.setFont("helvetica", "normal")
-  pdf.setFontSize(7.5)
-  pdf.setTextColor(140, 140, 140)
+  pdf.setFont("helvetica", "bold")
+  pdf.setFontSize(7.2)
+  pdf.setTextColor(100, 115, 130)
   pdf.text(
-    `Navigo Airways · support@navigo.app · Page ${pageNum} of ${totalPages}`,
+    `Navigo Aviation Portal  ·  support@navigo.app  ·  Page ${pageNum} of ${totalPages}`,
     A4_WIDTH_MM / 2,
-    293,
+    292,
     { align: "center" }
   )
 }

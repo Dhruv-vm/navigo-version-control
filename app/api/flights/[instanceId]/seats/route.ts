@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { supabase } from "@/lib/supabase"
+import { getBlockedSeatsForInstance } from "@/lib/seats"
 
 // GET /api/flights/[instanceId]/seats?bookingId=<uuid>
 //
@@ -254,12 +255,18 @@ export async function GET(req: Request, { params }: { params: Promise<{ instance
       (a, b) => classOrder.indexOf(a.cabin_class) - classOrder.indexOf(b.cabin_class)
     )
 
+    const blockedSet = new Set(getBlockedSeatsForInstance(instanceId))
     let rowOffset = 0
     const allSeats: GeneratedSeat[] = []
 
     for (const classRow of sortedClasses) {
       const takenByBooking = new Map<string, string>()
       const { seats, rowsUsed } = generateSeatsForClass(classRow, rowOffset, takenByBooking)
+      for (const s of seats) {
+        if (blockedSet.has(s.seatNumber)) {
+          s.isAvailable = false
+        }
+      }
       allSeats.push(...seats)
       rowOffset += rowsUsed
     }
