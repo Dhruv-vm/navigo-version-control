@@ -37,6 +37,27 @@ const NAV_ITEMS = [
   { id: "audit-logs", label: "Audit Logs", icon: "📜", href: "/admin/audit-logs" },
 ]
 
+// ── Thin-stroke line icons for the topbar — matches the overview page's
+// icon language instead of emoji, and (unlike emoji) never changes line
+// height or triggers font-fallback width shifts that push text to wrap. ──
+const iconProps = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const }
+
+const IconMenu = ({ className }: { className?: string }) => (
+  <svg {...iconProps} className={className}><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+)
+const IconSearch = ({ className }: { className?: string }) => (
+  <svg {...iconProps} className={className}><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+)
+const IconBell = ({ className }: { className?: string }) => (
+  <svg {...iconProps} className={className}><path d="M6 9a6 6 0 1 1 12 0c0 4 1.5 5.5 1.5 5.5H4.5S6 13 6 9Z" /><path d="M10 19a2 2 0 0 0 4 0" /></svg>
+)
+const IconChevronDown = ({ className }: { className?: string }) => (
+  <svg {...iconProps} className={className}><path d="m6 9 6 6 6-6" /></svg>
+)
+const IconArrowLeft = ({ className }: { className?: string }) => (
+  <svg {...iconProps} className={className}><path d="M19 12H5M11 6l-6 6 6 6" /></svg>
+)
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -117,33 +138,37 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <div className="min-h-screen bg-[#030712] text-slate-100 flex flex-col selection:bg-amber-400/30 selection:text-amber-200">
       {/* ── TOPBAR ─────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 bg-[#070E1C]/90 backdrop-blur-xl border-b border-white/[0.08] px-4 sm:px-6 h-16 flex items-center justify-between shadow-[0_4px_30px_rgba(0,0,0,0.5)]">
+      {/* Every label below is either `whitespace-nowrap` and fully shown,
+          or hidden past a breakpoint — nothing is left to shrink and wrap
+          onto a second line the way it was, which is what blew out the
+          fixed h-16 height and made the badge/logo overlap. */}
+      <header className="sticky top-0 z-40 bg-[#070E1C]/90 backdrop-blur-xl border-b border-white/[0.08] px-4 sm:px-6 h-16 flex items-center justify-between gap-3 shadow-[0_4px_30px_rgba(0,0,0,0.5)]">
         {/* Left: Mobile Toggle & Brand */}
-        <div className="flex items-center gap-3 sm:gap-4">
+        <div className="flex items-center gap-3 sm:gap-4 min-w-0">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="lg:hidden p-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-slate-300 hover:text-white"
+            className="shrink-0 lg:hidden p-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-slate-300 hover:text-white"
           >
-            ☰
+            <IconMenu className="w-4 h-4" />
           </button>
 
-          <Link href="/admin" className="flex items-center gap-2.5 group">
-            <img src="/logo.png" alt="Navigo" className="w-8 h-8 object-contain drop-shadow-[0_0_12px_rgba(251,191,36,0.35)]" />
-            <div className="leading-tight hidden sm:block">
+          <Link href="/admin" className="flex items-center gap-2.5 shrink-0 group">
+            <img src="/logo.png" alt="Navigo" className="w-8 h-8 object-contain shrink-0 drop-shadow-[0_0_12px_rgba(251,191,36,0.35)]" />
+            <div className="leading-tight hidden sm:block whitespace-nowrap">
               <div className="flex items-center gap-2">
                 <span className="font-display font-black text-sm tracking-[0.12em] text-white">NAVIGO</span>
-                <span className="text-[9px] font-mono font-bold bg-amber-400/15 text-amber-300 px-1.5 py-[1px] rounded border border-amber-400/30 tracking-wider">
+                <span className="hidden lg:inline-block text-[9px] font-mono font-bold bg-amber-400/15 text-amber-300 px-1.5 py-[1px] rounded border border-amber-400/30 tracking-wider whitespace-nowrap">
                   OPS COMMAND
                 </span>
               </div>
-              <span className="text-[10px] text-slate-500 font-mono tracking-wide">AIRPORT OPERATIONS SYSTEM</span>
+              <span className="hidden xl:block text-[10px] text-slate-500 font-mono tracking-wide whitespace-nowrap">AIRPORT OPERATIONS SYSTEM</span>
             </div>
           </Link>
 
-          {/* System Status & Time */}
-          <div className="hidden xl:flex items-center gap-4 pl-6 ml-2 border-l border-white/[0.08] text-xs font-mono">
+          {/* System Status & Time — only once there's real room for it */}
+          <div className="hidden 2xl:flex items-center gap-4 pl-6 ml-2 border-l border-white/[0.08] text-xs font-mono shrink-0 whitespace-nowrap">
             <div className="flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
+              <span className="relative flex h-2 w-2 shrink-0">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
               </span>
@@ -155,44 +180,45 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
 
         {/* Right: Simulation Toggle, Search, Role Switcher, Alerts & Profile */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
           {/* Simulation vs Realtime Mode Toggle */}
           <button
             onClick={toggleSimulationMode}
-            className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition-all flex items-center gap-2 border ${
+            className={`shrink-0 px-2.5 lg:px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition-all flex items-center gap-2 border whitespace-nowrap ${
               isSimulated
                 ? "bg-purple-500/20 text-purple-300 border-purple-500/40 shadow-[0_0_15px_rgba(168,85,247,0.25)]"
                 : "bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25"
             }`}
             title="Toggle between 100% Realtime Supabase Database and High-Volume Simulated Telemetry"
           >
-            <span className={`w-2 h-2 rounded-full ${isSimulated ? "bg-purple-400 animate-pulse" : "bg-emerald-400"}`} />
-            <span className="hidden md:inline">
-              {isSimulated ? "⚡ Simulation Mode" : "🟢 Realtime DB"}
+            <span className={`w-2 h-2 rounded-full shrink-0 ${isSimulated ? "bg-purple-400 animate-pulse" : "bg-emerald-400"}`} />
+            <span className="hidden lg:inline">
+              {isSimulated ? "Simulation Mode" : "Realtime DB"}
             </span>
-            <span className="md:hidden font-bold">
+            <span className="lg:hidden font-bold">
               {isSimulated ? "SIM" : "REAL"}
             </span>
           </button>
+
           {/* Global Search Button */}
           <button
             onClick={() => setSearchOpen(true)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.15] text-xs text-slate-400 hover:text-slate-200 transition-colors"
+            className="shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.15] text-xs text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap"
           >
-            <span>🔍</span>
-            <span className="hidden md:inline">Search PNR, Flight, Pax…</span>
-            <kbd className="hidden md:inline-block px-1.5 py-0.5 rounded bg-white/[0.08] text-[10px] font-mono text-slate-400">
+            <IconSearch className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden lg:inline">Search PNR, Flight, Pax…</span>
+            <kbd className="hidden lg:inline-block px-1.5 py-0.5 rounded bg-white/[0.08] text-[10px] font-mono text-slate-400">
               ⌘K
             </kbd>
           </button>
 
           {/* Notifications / Alerts Bell */}
-          <div className="relative">
+          <div className="relative shrink-0">
             <button
               onClick={() => setAlertsOpen(!alertsOpen)}
               className="relative w-9 h-9 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] text-slate-300 flex items-center justify-center transition-colors"
             >
-              <span>🔔</span>
+              <IconBell className="w-4 h-4" />
               <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-[10px] font-bold font-mono text-white flex items-center justify-center">
                 3
               </span>
@@ -239,14 +265,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
 
           {/* Role Switcher Selector */}
-          <div className="relative">
+          <div className="relative shrink-0">
             <button
               onClick={() => setRoleDropdownOpen(!roleDropdownOpen)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] text-xs transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] text-xs transition-colors whitespace-nowrap"
             >
-              <span className="w-2 h-2 rounded-full" style={{ background: activeRoleMeta.color }} />
-              <span className="font-bold text-white hidden md:inline">{activeRoleMeta.label}</span>
-              <span className="font-mono text-[10px] text-slate-400">▼</span>
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: activeRoleMeta.color }} />
+              <span className="font-bold text-white hidden lg:inline max-w-[9rem] truncate">{activeRoleMeta.label}</span>
+              <IconChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
             </button>
 
             <AnimatePresence>
@@ -296,9 +322,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {/* Return to passenger view */}
           <Link
             href="/dashboard"
-            className="px-3 py-1.5 rounded-xl border border-amber-400/30 bg-amber-400/10 text-amber-300 hover:bg-amber-400/20 text-xs font-mono font-bold transition-colors hidden sm:flex items-center gap-1.5"
+            className="shrink-0 px-3 py-1.5 rounded-xl border border-amber-400/30 bg-amber-400/10 text-amber-300 hover:bg-amber-400/20 text-xs font-mono font-bold transition-colors hidden sm:flex items-center gap-1.5 whitespace-nowrap"
           >
-            <span>←</span> Passenger App
+            <IconArrowLeft className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden xl:inline">Passenger App</span>
           </Link>
         </div>
       </header>
