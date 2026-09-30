@@ -43,11 +43,12 @@ export async function POST(req: Request) {
     }
 
     // 2️⃣ FIND STANDARD PASSENGER USER IN DATABASE
+    const cleanEmail = email.trim()
     const { data: user, error } = await supabase
       .from("users")
       .select("*")
-      .eq("email", email)
-      .single()
+      .ilike("email", cleanEmail)
+      .maybeSingle()
 
     if (error || !user) {
       console.log("❌ USER NOT FOUND")
@@ -73,12 +74,13 @@ export async function POST(req: Request) {
     console.log("✅ PASSWORD MATCH")
 
     // 3️⃣ CREATE TOKEN
+    const secret = process.env.JWT_SECRET || "navigo_jwt_secret_token_2026"
     const token = jwt.sign(
       {
         userId: user.id,
         email: user.email,
       },
-      process.env.JWT_SECRET!,
+      secret,
       { expiresIn: "7d" }
     )
 

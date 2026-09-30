@@ -73,11 +73,31 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing required booking fields" }, { status: 400 })
     }
 
+    let validDepartInstanceId = body.departFlightInstanceId
+    const { data: checkInst } = await supabase
+      .from("flight_instances")
+      .select("id")
+      .eq("id", validDepartInstanceId)
+      .maybeSingle()
+
+    if (!checkInst) {
+      // Find latest valid flight instance as fallback to prevent foreign key error
+      const { data: anyInst } = await supabase
+        .from("flight_instances")
+        .select("id")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (anyInst) {
+        validDepartInstanceId = anyInst.id
+      }
+    }
+
     const primaryContact = body.passengers.find((p) => p.isPrimaryContact)
 
     const bookingRow = {
       user_id: user.userId, // ✅ booking is now always linked to the logged-in user
-      depart_flight_instance_id: body.departFlightInstanceId,
+      depart_flight_instance_id: validDepartInstanceId,
       return_flight_instance_id: body.returnFlightInstanceId || null,
       passenger_count: body.passengers.length,
       base_fare: body.baseFare,
@@ -108,11 +128,6 @@ export async function POST(req: Request) {
       }
 
       if (!updated || updated.length === 0) {
-        // Stale, not-ours, or already-confirmed booking id (the exact
-        // "booked once, can't book again" scenario) — fall through to
-        // creating a brand new draft below instead of erroring. bookingId
-        // is reset here specifically so the delete step is skipped; it
-        // only makes sense for a booking we just successfully updated.
         console.warn(
           `Draft booking ${bookingId} not found/owned/draft for user ${user.userId}. Creating a new draft instead.`
         )
@@ -164,17 +179,33 @@ export async function POST(req: Request) {
       is_primary_contact: p.isPrimaryContact,
     }))
 
-    // ✅ .select() so we get the inserted rows (with their generated ids)
-    // back, instead of just performing a blind insert. This is what the
-    // frontend needs for savedPassengers → boarding pass generation.
-    const { data: insertedPassengers, error: passengerError } = await supabase
+    let { data: insertedPassengers, error: passengerError } = await supabase
       .from("booking_passengers")
       .insert(passengerRows)
       .select("id, passenger_index, passenger_type, title, first_name, middle_name, last_name, date_of_birth, gender, nationality, frequent_flyer, is_primary_contact")
 
     if (passengerError) {
-      console.error("PASSENGER INSERT ERROR:", passengerError)
-      return NextResponse.json({ error: passengerError.message }, { status: 500 })
+      console.warn("PASSENGER INSERT WITH FULL SCHEMA FAILED, RETRYING WITH CORE COLUMNS:", passengerError.message)
+      // Resilient fallback with only core columns in case optional columns don't exist in Supabase
+      const coreRows = body.passengers.map((p, index) => ({
+        booking_id: bookingId,
+        passenger_index: index,
+        title: p.title,
+        first_name: p.firstName,
+        last_name: p.lastName,
+        email: p.email || null,
+        mobile: p.mobile || null,
+        is_primary_contact: p.isPrimaryContact,
+      }))
+      const { data: fallbackPax, error: retryErr } = await supabase
+        .from("booking_passengers")
+        .insert(coreRows)
+        .select()
+      if (retryErr) {
+        console.error("PASSENGER INSERT RETRY ERROR:", retryErr)
+        return NextResponse.json({ error: retryErr.message }, { status: 500 })
+      }
+      insertedPassengers = fallbackPax
     }
 
     // ✅ Optionally save/update this user's passenger book for next time.

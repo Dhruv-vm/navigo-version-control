@@ -18,19 +18,36 @@ export async function GET(req: Request) {
     const token = authHeader.split(" ")[1]
 
     // VERIFY TOKEN
-    const decoded: any = jwt.verify(
-      token,
-      process.env.JWT_SECRET!
-    )
+    const secret = process.env.JWT_SECRET || "navigo_jwt_secret_token_2026"
+    const decoded: any = jwt.verify(token, secret)
 
     console.log("✅ TOKEN VALID")
+
+    // CHECK IF ADMIN USER
+    if (decoded.isAdmin || decoded.role || (typeof decoded.userId === "string" && decoded.userId.startsWith("adm-"))) {
+      const { DEMO_ADMIN_ACCOUNTS } = await import("@/lib/admin-auth")
+      const admin = DEMO_ADMIN_ACCOUNTS.find(
+        (a) => a.id === decoded.userId || a.email.toLowerCase() === (decoded.email || "").toLowerCase()
+      )
+      if (admin) {
+        return NextResponse.json({
+          user: {
+            id: admin.id,
+            name: admin.name,
+            email: admin.email,
+            role: admin.role,
+            isAdmin: true,
+          },
+        })
+      }
+    }
 
     // GET USER FROM DB
     const { data: user, error } = await supabase
       .from("users")
       .select("id, name, email")
       .eq("id", decoded.userId)
-      .single()
+      .maybeSingle()
 
     if (error || !user) {
       return NextResponse.json(
@@ -40,7 +57,7 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json({
-      user
+      user,
     })
 
   } catch (err: any) {

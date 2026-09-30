@@ -152,12 +152,24 @@ export default function Navbar() {
             Deals
           </p>
 
-          <div className="flex items-center gap-1.5 pl-4 pr-3 py-1.5 rounded-full font-medium text-slate-400 hover:text-white hover:bg-white/[0.05] cursor-pointer transition-all duration-200">
-            NavBot
-            <span className="text-[9px] font-bold bg-cyan-400/15 text-cyan-300 px-1.5 py-[1px] rounded-full tracking-wide navbot-pulse">
-              NEW
+          <button
+            onClick={() => {
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(new CustomEvent("open_navibot"))
+              }
+            }}
+            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full font-medium transition-all duration-200 ${
+              pathname === "/navibot"
+                ? "text-[#060B14] bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 shadow-[0_2px_12px_rgba(251,191,36,0.35)]"
+                : "text-slate-300 hover:text-white hover:bg-white/[0.05] group"
+            }`}
+          >
+            <span className="text-sm">🤖</span>
+            <span>NaviBot</span>
+            <span className="text-[9px] font-mono font-bold bg-cyan-400/20 text-cyan-300 px-1.5 py-[1px] rounded-full tracking-wide group-hover:bg-cyan-400/30">
+              AI
             </span>
-          </div>
+          </button>
 
         </div>
 

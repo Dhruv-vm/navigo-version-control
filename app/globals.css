@@ -70,7 +70,3 @@ html {
     transform: translateY(0);
   }
 }
-
-/* DATE RANGE PICKER */
-@import "react-date-range/dist/styles.css";
-@import "react-date-range/dist/theme/default.css";

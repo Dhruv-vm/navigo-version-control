@@ -34,7 +34,7 @@ export async function GET(req: Request) {
       }
     }
 
-    const todayStr = "2026-08-19"
+    const todayStr = new Date().toISOString().split("T")[0]
 
     let list = (instances || []).map((inst) => {
       const f = inst.flights

@@ -18,11 +18,18 @@ export async function POST(req: Request) {
       .from("users")
       .select("*")
       .eq("reset_token", token)
-      .single()
+      .maybeSingle()
 
     if (error || !user) {
       return NextResponse.json(
-        { error: "Invalid or expired token" },
+        { error: "Invalid or expired reset token" },
+        { status: 400 }
+      )
+    }
+
+    if (user.reset_token_expiry && new Date(user.reset_token_expiry) < new Date()) {
+      return NextResponse.json(
+        { error: "Reset token has expired. Please request a new link." },
         { status: 400 }
       )
     }
@@ -36,6 +43,7 @@ export async function POST(req: Request) {
       .update({
         password: hashedPassword,
         reset_token: null,
+        reset_token_expiry: null,
       })
       .eq("id", user.id)
 

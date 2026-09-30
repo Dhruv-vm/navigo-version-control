@@ -25,19 +25,24 @@ export async function GET(req: Request) {
     const instanceIds = Array.from(
       new Set(
         (bookings || [])
-          .flatMap((b) => [b.depart_flight_instance_id, b.return_flight_instance_id])
+          .flatMap((b: any) => [b.depart_flight_instance_id, b.return_flight_instance_id])
           .filter(Boolean)
       )
     )
 
-    const { data: instances } = await supabase
-      .from("flight_instances")
-      .select("*, flights(*)")
-      .in("id", instanceIds)
+    let instanceMap = new Map<string, any>()
+    if (instanceIds.length > 0) {
+      const { data: instances } = await supabase
+        .from("flight_instances")
+        .select("*, flights(*)")
+        .in("id", instanceIds)
 
-    const instanceMap = new Map((instances || []).map((i) => [i.id, i]))
+      if (instances) {
+        instanceMap = new Map(instances.map((i) => [i.id, i]))
+      }
+    }
 
-    let list = (bookings || []).map((b) => {
+    let list = (bookings || []).map((b: any) => {
       const depInst = instanceMap.get(b.depart_flight_instance_id)
       const depFlight = depInst?.flights
       const primaryPax = b.booking_passengers?.[0]

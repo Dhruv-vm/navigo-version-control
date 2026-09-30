@@ -65,20 +65,21 @@ export async function POST(
     // Idempotent — a retried request (e.g. after a network blip on the
     // client) always gets back the PNR that's genuinely in the row,
     // never a freshly generated one.
-    if (booking.status === CONFIRMED_STATUS) {
+    const currentStatus = (booking.status || "").toLowerCase()
+
+    // Idempotent — a retried request always gets back the PNR in the row
+    if (currentStatus === CONFIRMED_STATUS.toLowerCase()) {
       return NextResponse.json({ bookingId, status: CONFIRMED_STATUS, pnr: booking.pnr, alreadyConfirmed: true })
     }
 
-    if (booking.status !== "draft") {
+    if (currentStatus !== "draft") {
       return NextResponse.json(
         { error: `Booking is in "${booking.status}" state and can't be confirmed` },
         { status: 409 }
       )
     }
 
-    // Generate + write, retrying only on an actual PNR collision against
-    // the unique index from migration_confirm_booking.sql (astronomically
-    // unlikely at 33^6 possibilities, but cheap to guard anyway).
+    // Generate + write, retrying only on an actual PNR collision
     let finalPnr = ""
     let lastError: { code?: string; message: string } | null = null
 
@@ -95,7 +96,7 @@ export async function POST(
           paid_at: new Date().toISOString(),
         })
         .eq("id", bookingId)
-        .eq("status", "draft") // guards against a race with a concurrent confirm
+        .ilike("status", "draft") // guards against a race with a concurrent confirm
 
       if (!error) {
         lastError = null

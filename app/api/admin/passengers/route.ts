@@ -6,12 +6,33 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url)
     const search = searchParams.get("q")
 
-    const { data: passengers, error } = await supabase
+    let passengers: any[] = []
+    const { data: pData, error } = await supabase
       .from("booking_passengers")
       .select("*, bookings(*)")
       .order("created_at", { ascending: false })
 
-    if (error) throw error
+    if (error || !pData) {
+      console.warn("ADMIN PASSENGERS - Relation join failed, falling back to separate queries:", error?.message)
+      const { data: rawPax } = await supabase
+        .from("booking_passengers")
+        .select("*")
+        .order("created_at", { ascending: false })
+
+      const bIds = Array.from(new Set((rawPax || []).map((p: any) => p.booking_id).filter(Boolean)))
+      let bMap = new Map<string, any>()
+      if (bIds.length > 0) {
+        const { data: bList } = await supabase.from("bookings").select("*").in("id", bIds)
+        if (bList) bMap = new Map(bList.map((b) => [b.id, b]))
+      }
+
+      passengers = (rawPax || []).map((p) => ({
+        ...p,
+        bookings: bMap.get(p.booking_id) || null,
+      }))
+    } else {
+      passengers = pData
+    }
 
     let list = (passengers || []).map((p) => {
       const b = p.bookings

@@ -24,10 +24,22 @@ export async function GET(req: Request) {
     }
 
     // 2. Fetch booked seats from booking_seats
-    const { data: bookedRows } = await supabase
+    let bookedRows: any[] = []
+    const { data: bRows, error: bErr } = await supabase
       .from("booking_seats")
       .select("*, booking_passengers(*)")
       .eq("flight_instance_id", flightInstanceId)
+
+    if (bErr || !bRows) {
+      console.warn("ADMIN SEATS - booking_passengers join failed, falling back:", bErr?.message)
+      const { data: rawSeats } = await supabase
+        .from("booking_seats")
+        .select("*")
+        .eq("flight_instance_id", flightInstanceId)
+      bookedRows = rawSeats || []
+    } else {
+      bookedRows = bRows
+    }
 
     const bookedMap = new Map((bookedRows || []).map((b) => [b.seat_number, b]))
 

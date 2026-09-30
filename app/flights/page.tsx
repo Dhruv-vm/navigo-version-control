@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react"
+import { useEffect, useMemo, useState, Suspense, type MouseEvent as ReactMouseEvent } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import Navbar from "@/components/navbar"
 import FlightCard from "@/components/FlightCard"
@@ -193,6 +193,14 @@ const airlineLogos: Record<string, string> = {
 }
 
 export default function FlightsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#020614] text-white flex items-center justify-center">Loading flight search…</div>}>
+      <FlightsPageContent />
+    </Suspense>
+  )
+}
+
+function FlightsPageContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
 

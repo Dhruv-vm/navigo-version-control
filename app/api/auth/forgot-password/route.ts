@@ -17,12 +17,14 @@ export async function POST(req: Request) {
 
     console.log("🔍 Checking user:", email)
 
+    const cleanEmail = email.trim()
+
     // 🔍 Check if user exists
     const { data: user, error: userError } = await supabase
       .from("users")
       .select("*")
-      .eq("email", email)
-      .single()
+      .ilike("email", cleanEmail)
+      .maybeSingle()
 
     if (userError || !user) {
       return NextResponse.json(
@@ -46,7 +48,7 @@ export async function POST(req: Request) {
         reset_token: token,
         reset_token_expiry: expiry.toISOString(),
       })
-      .eq("email", email)
+      .eq("id", user.id)
 
     if (updateError) {
       console.error("❌ DB update failed:", updateError)
@@ -57,7 +59,8 @@ export async function POST(req: Request) {
     }
 
     // 🔗 Create reset link (frontend route)
-    const resetLink = `http://localhost:3000/reset-password?token=${token}`
+    const origin = req.headers.get("origin") || req.headers.get("referer")?.replace(/\/$/, "") || "http://localhost:3000"
+    const resetLink = `${origin}/reset-password?token=${token}`
 
     // 🚨 For now: log instead of email
     console.log("📩 RESET LINK:", resetLink)

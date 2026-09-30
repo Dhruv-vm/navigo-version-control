@@ -623,8 +623,6 @@ export default function PassengerDetailsPage() {
           </div>
         </div>
       </div>
-
-      <NavBot />
     </div>
   )
 }
@@ -1191,21 +1189,6 @@ function NavBotTip() {
         <p className="text-sm text-slate-300 mt-1">Want a window seat?</p>
         <p className="text-xs text-slate-500 mt-0.5">Select your preferred seats in the next step.</p>
       </div>
-    </div>
-  )
-}
-
-function NavBot() {
-  const [hovered, setHovered] = useState(false)
-  return (
-    <div className="fixed bottom-6 right-6 z-40 hidden md:block" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
-      {hovered && (
-        <div className="absolute bottom-full right-0 mb-3 bg-[#0D1A2C] border border-white/10 rounded-xl px-4 py-2.5 text-xs text-slate-300 whitespace-nowrap shadow-lg navbot-tooltip">
-          Need help with your booking?
-        </div>
-      )}
-      <button className={`w-14 h-14 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center text-2xl shadow-[0_8px_24px_rgba(34,211,238,0.25)] navbot-float ${hovered ? "navbot-bounce" : ""}`}
-        aria-label="Open NavBot assistant">🤖</button>
     </div>
   )
 }

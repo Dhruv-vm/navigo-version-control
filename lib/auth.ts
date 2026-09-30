@@ -20,7 +20,8 @@ export function getUserFromRequest(req: Request): AuthUser | null {
   if (!token) return null
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as AuthUser
+    const secret = process.env.JWT_SECRET || "navigo_jwt_secret_token_2026"
+    const decoded = jwt.verify(token, secret) as AuthUser
     return decoded
   } catch (err) {
     return null

@@ -62,9 +62,10 @@ function getDaysFactor(daysUntilDeparture: number): number {
 // Friday/Sunday (peak leisure + return-to-work travel) cost a bit more;
 // midweek is cheapest.
 function getDowFactor(dateStr: string): number {
-  const [y, m, d] = dateStr.split("-").map(Number)
+  const clean = (dateStr || "").slice(0, 10)
+  const [y, m, d] = clean.split("-").map(Number)
   const date = new Date(y, (m || 1) - 1, d || 1)
-  const dow = date.getDay() // 0 = Sun ... 6 = Sat
+  const dow = isNaN(date.getTime()) ? 0 : date.getDay() // 0 = Sun ... 6 = Sat
 
   const factorsByDow: Record<number, number> = {
     0: 1.12, // Sunday
@@ -98,12 +99,14 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function daysBetween(today: Date, travelDateStr: string): number {
-  const [y, m, d] = travelDateStr.split("-").map(Number)
+  const clean = (travelDateStr || "").slice(0, 10)
+  const [y, m, d] = clean.split("-").map(Number)
   const travel = new Date(y, (m || 1) - 1, d || 1)
 
   const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
   const diffMs = travel.getTime() - todayMidnight.getTime()
-  return Math.round(diffMs / (1000 * 60 * 60 * 24))
+  const days = Math.round(diffMs / (1000 * 60 * 60 * 24))
+  return isNaN(days) ? 14 : days
 }
 
 // --- public entry point -------------------------------------------------

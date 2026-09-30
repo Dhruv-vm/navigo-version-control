@@ -76,42 +76,82 @@ export async function GET(req: Request) {
   }
 
   // 🔥 STEP 1: Standardized Dynamic Pricing Engine
-  const enhancedData = data.map((flight) => {
-    const instances = Array.isArray(flight.flight_instances) ? flight.flight_instances : []
-    const instance = date
-      ? instances.find((inst: any) => String(inst.travel_date || "").slice(0, 10) === date) || instances[0]
-      : instances[0]
+  const enhancedData = await Promise.all(
+    data.map(async (flight) => {
+      const instances = Array.isArray(flight.flight_instances) ? flight.flight_instances : []
+      let instance = date
+        ? instances.find((inst: any) => String(inst.travel_date || "").slice(0, 10) === date)
+        : instances[0]
 
-    const basePrice = Number(flight.base_price) || 5200
-    const availableSeats = Number(instance?.available_seats ?? 94)
-    const travelDateStr = String(instance?.travel_date || date || new Date().toISOString().slice(0, 10))
+      if (!instance && date) {
+        // Auto-seed flight_instance row so that bookings and seat maps have a valid UUID foreign key
+        try {
+          const econ = Number(flight.seats_economy) || 144
+          const prem = Number(flight.seats_premium_economy) || 18
+          const biz = Number(flight.seats_business) || 12
+          const first = Number(flight.seats_first) || 6
+          const total = econ + prem + biz + first
+          const { data: newInst } = await supabase
+            .from("flight_instances")
+            .insert({
+              flight_id: flight.id,
+              travel_date: date,
+              available_seats: total,
+              seats_economy: econ,
+              seats_premium_economy: prem,
+              seats_business: biz,
+              seats_first: first,
+              tax_amount: Math.round((Number(flight.base_price) || 4500) * 0.12),
+              fee_amount: 450,
+              gate: `G${(Math.abs(String(flight.id).charCodeAt(0) || 1) % 20) + 1}`,
+              status: "SCHEDULED",
+            })
+            .select()
+            .maybeSingle()
 
-    const pricing = computeDynamicPrice({
-      basePrice,
-      availableSeats,
-      travelDate: travelDateStr,
+          if (newInst) {
+            instance = newInst
+          }
+        } catch (e) {
+          console.warn("Could not auto-create flight instance:", e)
+        }
+      }
+
+      if (!instance) {
+        instance = instances[0]
+      }
+
+      const basePrice = Number(flight.base_price) || 5200
+      const availableSeats = Number(instance?.available_seats ?? 94)
+      const travelDateStr = String(instance?.travel_date || date || new Date().toISOString().slice(0, 10))
+
+      const pricing = computeDynamicPrice({
+        basePrice,
+        availableSeats,
+        travelDate: travelDateStr,
+      })
+
+      const final_price = pricing.finalPrice
+      const durationMins = getDurationMinutes(flight)
+      const duration = formatDuration(durationMins)
+
+      return {
+        ...flight,
+        flight_instance_id: instance?.id || flight.id,
+        travel_date: travelDateStr,
+        available_seats: availableSeats,
+        seats_economy: instance?.seats_economy ?? 120,
+        seats_premium_economy: instance?.seats_premium_economy ?? 24,
+        seats_business: instance?.seats_business ?? 12,
+        seats_first: instance?.seats_first ?? 0,
+        tax_amount: instance?.tax_amount ?? Math.round(final_price * 0.12),
+        fee_amount: instance?.fee_amount ?? Math.round(final_price * 0.07),
+        final_price,
+        duration,
+        duration_minutes: durationMins,
+      }
     })
-
-    const final_price = pricing.finalPrice
-    const durationMins = getDurationMinutes(flight)
-    const duration = formatDuration(durationMins)
-
-    return {
-      ...flight,
-      flight_instance_id: instance?.id || `inst-${flight.id}`,
-      travel_date: travelDateStr,
-      available_seats: availableSeats,
-      seats_economy: instance?.seats_economy ?? 120,
-      seats_premium_economy: instance?.seats_premium_economy ?? 24,
-      seats_business: instance?.seats_business ?? 12,
-      seats_first: instance?.seats_first ?? 0,
-      tax_amount: instance?.tax_amount ?? Math.round(final_price * 0.12),
-      fee_amount: instance?.fee_amount ?? Math.round(final_price * 0.07),
-      final_price,
-      duration,
-      duration_minutes: durationMins,
-    }
-  })
+  )
 
   // 🔥 STEP 2: Ranking (Best Flights)
   const rankedFlights = [...enhancedData].sort((a, b) => {

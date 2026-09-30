@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
 import Link from "next/link"
@@ -8,6 +8,14 @@ import { biometricProvider } from "@/lib/biometric/provider"
 import type { FaceDetectionResult } from "@/lib/biometric/faceDetection"
 
 export default function GateVerificationPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#020614] text-white flex items-center justify-center">Loading gate scanner…</div>}>
+      <GateVerificationContent />
+    </Suspense>
+  )
+}
+
+function GateVerificationContent() {
   const searchParams = useSearchParams()
   const tokenFromUrl = searchParams.get("token") || ""
 

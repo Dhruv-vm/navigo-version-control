@@ -11,6 +11,23 @@ export async function POST(req: Request) {
 
     const { name, email, phone, password } = body
 
+    if (!email || !password || !name) {
+      return NextResponse.json({ error: "Name, email, and password are required" }, { status: 400 })
+    }
+
+    const cleanEmail = email.trim().toLowerCase()
+
+    // Check if user already exists
+    const { data: existingUser } = await supabase
+      .from("users")
+      .select("id")
+      .ilike("email", cleanEmail)
+      .maybeSingle()
+
+    if (existingUser) {
+      return NextResponse.json({ error: "An account with this email already exists" }, { status: 409 })
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10)
 
     console.log("📡 INSERTING INTO SUPABASE...")
@@ -19,9 +36,9 @@ export async function POST(req: Request) {
       .from("users")
       .insert([
         {
-          name,
-          email,
-          phone,
+          name: name.trim(),
+          email: cleanEmail,
+          phone: phone ? phone.trim() : null,
           password: hashedPassword,
         },
       ])

@@ -310,7 +310,7 @@ export async function POST(
     }
 
     // ── Step 4: insert the new picks, now including cabin_class ────────
-    const { error: insertError } = await supabase.from("booking_seats").insert(
+    let { error: insertError } = await supabase.from("booking_seats").insert(
       allPicks.map((p) => ({
         booking_id: bookingId,
         passenger_id: p.passengerId,
@@ -321,9 +321,20 @@ export async function POST(
       }))
     )
 
+    if (insertError && (insertError.message?.includes("column") || insertError.code === "42703")) {
+      console.warn("SEAT SAVE - Column missing error, retrying without optional columns:", insertError.message)
+      const fallbackInsert = await supabase.from("booking_seats").insert(
+        allPicks.map((p) => ({
+          booking_id: bookingId,
+          passenger_id: p.passengerId,
+          flight_instance_id: p.flightInstanceId,
+          seat_number: p.seatNumber,
+        }))
+      )
+      insertError = fallbackInsert.error
+    }
+
     if (insertError) {
-      // 23505 = unique_violation — someone else grabbed one of these
-      // seats between the availability check above and this insert.
       if (insertError.code === "23505") {
         return NextResponse.json(
           { error: "One of the selected seats was just taken. Please pick again.", conflict: true },

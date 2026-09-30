@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { motion } from "framer-motion"
 import Navbar from "@/components/navbar"
@@ -8,6 +8,14 @@ import CheckInModal from "@/components/CheckInModal"
 import BoardingPassModal, { ModalBooking } from "@/components/BoardingPassModal"
 
 export default function CheckInPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#020614] text-white flex items-center justify-center">Loading check-in…</div>}>
+      <CheckInContent />
+    </Suspense>
+  )
+}
+
+function CheckInContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialPnr = searchParams.get("pnr") || ""
