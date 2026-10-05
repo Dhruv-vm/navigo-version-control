@@ -25,6 +25,8 @@ const airlineLogos: Record<string, string> = {
   "Emirates": "/airlines/emirates.png",
   "Qatar Airways": "/airlines/qatar.png",
   "Japan Airlines": "/airlines/jal.png",
+  "Navigo Airlines": "/logo.png",
+  "Navigo": "/logo.png",
 };
 
 // Premium jewel-tone tag treatment — each tag reads as a small emblem
@@ -81,7 +83,7 @@ export default function FlightCard({
   isSelected?: boolean;
   isCheapest?: boolean;
 }) {
-  const logo = airlineLogos[flight.airline] || "/airlines/default.png";
+  const logo = airlineLogos[flight.airline] || "/logo.png";
 
   const pax = flight.passengers || 1;
 
@@ -178,10 +180,10 @@ export default function FlightCard({
       </div>
 
       {/* MAIN GRID */}
-      <div className="grid grid-cols-[1.4fr_2.8fr_auto_1.3fr] items-center gap-6">
+      <div className="grid grid-cols-[minmax(190px,1.6fr)_2.6fr_auto_1.3fr] items-center gap-4 sm:gap-6">
 
         {/* LEFT */}
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0 pr-2">
           <div
             className="w-12 h-12 rounded-2xl bg-white/95 flex items-center justify-center shadow-[0_4px_14px_rgba(0,0,0,0.3)] ring-1 ring-white/10 overflow-hidden shrink-0 transition-transform duration-300 group-hover:scale-110"
             style={{
@@ -190,11 +192,11 @@ export default function FlightCard({
               transition: "transform 380ms cubic-bezier(0.34,1.56,0.64,1), opacity 300ms ease-out",
             }}
           >
-            <img src={logo} className="w-8 h-8 object-contain" />
+            <img src={logo} className="w-8 h-8 object-contain" alt={flight.airline} />
           </div>
 
-          <div className="min-w-0">
-            <p className="font-display font-bold text-lg tracking-tight whitespace-nowrap text-white">
+          <div className="min-w-0 flex-1">
+            <p className="font-display font-bold text-base sm:text-lg tracking-tight truncate text-white" title={flight.airline}>
               {flight.airline}
             </p>
             <p className="text-xs text-gray-400 tracking-wide whitespace-nowrap">

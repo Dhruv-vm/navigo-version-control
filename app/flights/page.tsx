@@ -970,8 +970,6 @@ function FlightsPageContent() {
         {/* subtle dim while the next page transitions in */}
         <div className={`fixed inset-0 bg-black pointer-events-none z-[60] transition-opacity duration-300 ${navigating ? "opacity-30" : "opacity-0"}`} />
 
-        <NavBot />
-
       </div>
 
       <style jsx global>{`
@@ -1174,31 +1172,6 @@ function FlightsPageContent() {
             animation: none !important; transition: none !important;
           }
           .page-enter { opacity: 1; transform: none; }
-        }
-      `}</style>
-    </div>
-  )
-}
-
-function NavBot() {
-  const [hovered, setHovered] = useState(false)
-  return (
-    <div className="fixed bottom-6 right-6 z-40 hidden md:block" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
-      {hovered && (
-        <div className="absolute bottom-full right-0 mb-3 bg-[#0D1A2C] border border-white/10 rounded-xl px-4 py-2.5 text-xs text-slate-300 whitespace-nowrap shadow-lg navbot-tooltip">
-          Need help picking a flight?
-        </div>
-      )}
-      <button className={`w-14 h-14 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center text-2xl shadow-[0_8px_24px_rgba(34,211,238,0.25)] navbot-float ${hovered ? "navbot-bounce" : ""}`}
-        aria-label="Open NavBot assistant">🤖</button>
-      <style jsx>{`
-        @keyframes navbotFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
-        .navbot-float { animation: navbotFloat 4s ease-in-out infinite; }
-        .navbot-bounce { animation: navbotFloat 0.6s ease-in-out infinite; transform: scale(1.05); }
-        @keyframes tooltipIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-        .navbot-tooltip { animation: tooltipIn 180ms ease-out; }
-        @media (prefers-reduced-motion: reduce) {
-          .navbot-float, .navbot-bounce, .navbot-tooltip { animation: none !important; }
         }
       `}</style>
     </div>
